@@ -25,3 +25,8 @@ export interface GatewayHealth {
   protocolVersion: 1;
   serverId: string;
 }
+
+export interface DesktopGatewayStatus extends GatewayHealth {
+  port: number;
+  addresses: string[];
+}
