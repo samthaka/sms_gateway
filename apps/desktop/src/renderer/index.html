@@ -94,6 +94,52 @@
         color: #64748b;
         font-size: 0.9rem;
       }
+
+      .pair-code {
+        background: #eff6ff;
+        border-radius: 0.75rem;
+        color: #1d4ed8;
+        display: inline-block;
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: 0.22em;
+        padding: 0.75rem 1rem;
+      }
+
+      button {
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.5rem;
+        color: #334155;
+        cursor: pointer;
+        font: inherit;
+        padding: 0.55rem 0.8rem;
+      }
+
+      button:hover {
+        background: #f1f5f9;
+      }
+
+      .device-row {
+        align-items: center;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.8rem 0;
+      }
+
+      .device-name {
+        color: #0f172a;
+        font-weight: 600;
+      }
+
+      .code-row {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
     </style>
     <script src="./renderer.js" defer></script>
   </head>
@@ -112,15 +158,28 @@
           Starting local gateway…
         </p>
         <div id="gateway-details" hidden>
-          <p>Enter one of these addresses in the Android app:</p>
+          <h3>1. Verify the desktop certificate</h3>
+          <p class="muted">
+            Compare this fingerprint with the one shown in Android before
+            trusting the desktop. Do not continue if they differ.
+          </p>
+          <p><code id="certificate-pin"></code></p>
+          <p>Desktop addresses:</p>
           <ul id="gateway-addresses" class="address-list"></ul>
           <p class="muted">
-            Keep both devices on the same Wi-Fi or local network. If the
-            desktop firewall asks, allow SMS Gateway on private networks.
+            Android emulator: use
+            <code>https://10.0.2.2:47832</code>.
           </p>
-          <p class="muted">
-            Android emulator: use <code>http://10.0.2.2:47832</code>.
+          <h3>2. Pair a trusted device</h3>
+          <div class="code-row">
+            <span id="pairing-code" class="pair-code"></span>
+            <button id="rotate-code" type="button">Generate new code</button>
+          </div>
+          <p id="pairing-expiry" class="muted">
+            This one-time code expires in five minutes.
           </p>
+          <h3>Paired devices</h3>
+          <div id="paired-devices"></div>
         </div>
       </section>
     </main>

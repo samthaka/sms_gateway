@@ -9,9 +9,13 @@
     "test": "node --test test/*.test.cjs",
     "start": "npm run build && electron ."
   },
+  "dependencies": {
+    "@sms-gateway/shared-contracts": "^0.1.0",
+    "@sms-gateway/validation": "^0.1.0",
+    "selfsigned": "^5.5.0"
+  },
   "devDependencies": {
     "@sms-gateway/api-client": "^0.1.0",
-    "@sms-gateway/shared-contracts": "^0.1.0",
     "electron": "^45.0.0"
   }
 }

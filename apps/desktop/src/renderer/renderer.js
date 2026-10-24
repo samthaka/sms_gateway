@@ -1,30 +1,97 @@
 const statusElement = document.getElementById('gateway-status');
 const detailsElement = document.getElementById('gateway-details');
 const addressesElement = document.getElementById('gateway-addresses');
+const pairingCodeElement = document.getElementById('pairing-code');
+const pairingExpiryElement = document.getElementById('pairing-expiry');
+const certificatePinElement = document.getElementById('certificate-pin');
+const devicesElement = document.getElementById('paired-devices');
+
+function renderStatus(status) {
+  statusElement.classList.add('ready');
+  statusElement.lastChild.textContent = 'Gateway is running';
+  detailsElement.hidden = false;
+  pairingCodeElement.textContent = status.pairingCode;
+  certificatePinElement.textContent = status.certificatePin;
+  pairingExpiryElement.textContent =
+    status.pairingCode === 'expired'
+      ? 'This code expired. Generate a new code to pair a device.'
+      : `One-time code expires at ${new Date(status.pairingCodeExpiresAt).toLocaleTimeString()}.`;
+
+  addressesElement.replaceChildren();
+  devicesElement.replaceChildren();
+
+  if (status.addresses.length === 0) {
+    const item = document.createElement('li');
+    item.textContent =
+      'No local network address found. Connect this computer to Wi-Fi or Ethernet.';
+    addressesElement.append(item);
+  }
+
+  for (const address of status.addresses) {
+    const item = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = address;
+    item.append(code);
+    addressesElement.append(item);
+  }
+
+  if (status.pairedDevices.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'No devices paired yet.';
+    devicesElement.append(empty);
+    return;
+  }
+
+  for (const device of status.pairedDevices) {
+    const row = document.createElement('div');
+    row.className = 'device-row';
+    const label = document.createElement('span');
+    label.className = 'device-name';
+    label.textContent = `${device.name} · paired ${new Date(device.pairedAt).toLocaleString()}`;
+    const revoke = document.createElement('button');
+    revoke.type = 'button';
+    revoke.textContent = 'Revoke';
+    revoke.addEventListener('click', async () => {
+      revoke.disabled = true;
+      try {
+        renderStatus(await window.smsGateway.revokeDevice(device.id));
+      } catch (error) {
+        revoke.disabled = false;
+        window.alert(`Could not revoke device: ${error.message}`);
+      }
+    });
+    row.append(label, revoke);
+    devicesElement.append(row);
+  }
+}
 
 window.smsGateway.getStatus()
-  .then((status) => {
-    statusElement.classList.add('ready');
-    statusElement.lastChild.textContent = 'Gateway is running';
-    detailsElement.hidden = false;
-
-    if (status.addresses.length === 0) {
-      const item = document.createElement('li');
-      item.textContent =
-        'No local network address found. Connect this computer to Wi-Fi or Ethernet.';
-      addressesElement.append(item);
-    }
-
-    for (const address of status.addresses) {
-      const item = document.createElement('li');
-      const code = document.createElement('code');
-      code.textContent = address;
-      item.append(code);
-      addressesElement.append(item);
-    }
-  })
+  .then(renderStatus)
   .catch((error) => {
     statusElement.classList.remove('ready');
     statusElement.lastChild.textContent =
       `Gateway failed to start: ${error.message}`;
   });
+
+window.setInterval(() => {
+  window.smsGateway.getStatus()
+    .then(renderStatus)
+    .catch((error) => {
+      statusElement.classList.remove('ready');
+      statusElement.lastChild.textContent =
+        `Gateway status unavailable: ${error.message}`;
+    });
+}, 5000);
+
+document.getElementById('rotate-code').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    renderStatus(await window.smsGateway.rotatePairingCode());
+  } catch (error) {
+    window.alert(`Could not generate a pairing code: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+});

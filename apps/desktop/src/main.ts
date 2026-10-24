@@ -33,9 +33,29 @@ ipcMain.handle('gateway:get-status', () => {
   return gateway.getStatus();
 });
 
+ipcMain.handle('gateway:rotate-pairing-code', () => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  return gateway.rotatePairingCode();
+});
+
+ipcMain.handle('gateway:revoke-device', async (_event, deviceId: unknown) => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  if (typeof deviceId !== 'string') {
+    throw new TypeError('Device ID must be a string');
+  }
+  await gateway.revokeDevice(deviceId);
+  return gateway.getStatus();
+});
+
 app.whenReady()
   .then(async () => {
-    gateway = await startGatewayServer();
+    gateway = await startGatewayServer({
+      storageDir: path.join(app.getPath('userData'), 'gateway'),
+    });
     createMainWindow();
   })
   .catch((error: unknown) => {

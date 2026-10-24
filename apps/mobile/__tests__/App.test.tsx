@@ -5,11 +5,23 @@
 import React from 'react';
 import { Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
-import { fetchGatewayHealth } from '@sms-gateway/api-client';
+import { createGatewayClient } from '@sms-gateway/api-client';
+import {
+  inspectGatewayCertificate,
+  setSecureValue,
+} from '../gateway-security';
 import App from '../App';
 
 jest.mock('@sms-gateway/api-client', () => ({
-  fetchGatewayHealth: jest.fn(),
+  createGatewayClient: jest.fn(),
+}));
+
+jest.mock('../gateway-security', () => ({
+  gatewayTransport: { request: jest.fn() },
+  getSecureValue: jest.fn().mockResolvedValue(null),
+  inspectGatewayCertificate: jest.fn(),
+  removeSecureValue: jest.fn().mockResolvedValue(undefined),
+  setSecureValue: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -32,51 +44,114 @@ jest.mock('react-native-safe-area-context', () => {
   };
 });
 
-test('renders correctly', async () => {
+function renderApp(): ReactTestRenderer.ReactTestRenderer {
   let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-  await ReactTestRenderer.act(() => {
+  ReactTestRenderer.act(() => {
     renderer = ReactTestRenderer.create(<App />);
   });
-
   if (!renderer) {
     throw new Error('App did not render');
   }
+  return renderer;
+}
+
+test('asks to inspect the desktop certificate before showing pairing fields', () => {
+  const renderer = renderApp();
 
   expect(
     renderer.root.findByProps({ testID: 'gateway-address-input' }),
   ).toBeTruthy();
   expect(
-    renderer.root.findByProps({ testID: 'connect-gateway-button' }),
+    renderer.root.findByProps({ testID: 'inspect-certificate-button' }),
+  ).toBeTruthy();
+  expect(
+    renderer.root.findAllByProps({ testID: 'pairing-code-input' }),
+  ).toHaveLength(0);
+});
+
+test('reveals pairing only after fingerprint inspection and explicit confirmation', async () => {
+  jest.mocked(inspectGatewayCertificate).mockResolvedValue(
+    'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+  );
+  const renderer = renderApp();
+  const inspectButton = renderer.root.findByProps({
+    testID: 'inspect-certificate-button',
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await inspectButton.props.onPress();
+  });
+
+  expect(
+    renderer.root.findByProps({ testID: 'trust-certificate-button' }),
+  ).toBeTruthy();
+  expect(
+    renderer.root.findAllByProps({ testID: 'pairing-code-input' }),
+  ).toHaveLength(0);
+
+  const trustButton = renderer.root.findByProps({
+    testID: 'trust-certificate-button',
+  });
+  ReactTestRenderer.act(() => {
+    trustButton.props.onPress();
+  });
+
+  expect(
+    renderer.root.findByProps({ testID: 'pairing-code-input' }),
   ).toBeTruthy();
 });
 
-test('verifies the desktop gateway and shows the connected state', async () => {
-  jest.mocked(fetchGatewayHealth).mockResolvedValue({
-    status: 'ok',
-    protocolVersion: 1,
-    serverId: 'gateway-test-id',
+test('pairs the phone and stores its credential using secure storage', async () => {
+  const pairDevice = jest.fn().mockResolvedValue({
+    deviceId: 'device-test-id',
+    deviceName: 'Android gateway',
+    serverId: 'server-test-id',
+    token: 'opaque-test-token',
   });
-
-  let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-  await ReactTestRenderer.act(() => {
-    renderer = ReactTestRenderer.create(<App />);
+  jest.mocked(createGatewayClient).mockReturnValue({
+    getHealth: jest.fn(),
+    pairDevice,
+    getPairedDevice: jest.fn(),
   });
+  jest.mocked(inspectGatewayCertificate).mockResolvedValue(
+    'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+  );
 
-  if (!renderer) {
-    throw new Error('App did not render');
-  }
-
-  const connectButton = renderer.root.findByProps({
-    testID: 'connect-gateway-button',
-  });
+  const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
-    await connectButton.props.onPress();
+    await renderer.root
+      .findByProps({ testID: 'inspect-certificate-button' })
+      .props.onPress();
+  });
+  ReactTestRenderer.act(() => {
+    renderer.root
+      .findByProps({ testID: 'trust-certificate-button' })
+      .props.onPress();
   });
 
-  expect(fetchGatewayHealth).toHaveBeenCalledWith('http://10.0.2.2:47832');
+  ReactTestRenderer.act(() => {
+    renderer.root
+      .findByProps({ testID: 'pairing-code-input' })
+      .props.onChangeText('123456');
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await renderer.root
+      .findByProps({ testID: 'pair-device-button' })
+      .props.onPress();
+  });
+
+  expect(pairDevice).toHaveBeenCalledWith({
+    code: '123456',
+    deviceName: 'Android gateway',
+  });
+  expect(setSecureValue).toHaveBeenCalledWith(
+    'paired-gateway',
+    expect.stringContaining('opaque-test-token'),
+  );
   expect(
     renderer.root
       .findAllByType(Text)
-      .some((text) => text.props.children === 'Connected to desktop'),
+      .some((text) => text.props.children === 'Device paired'),
   ).toBe(true);
 });
