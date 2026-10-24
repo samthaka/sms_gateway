@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SMS Gateway</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+
+      body {
+        display: grid;
+        min-height: 100vh;
+        margin: 0;
+        place-items: center;
+      }
+
+      main {
+        max-width: 36rem;
+        padding: 2rem;
+        text-align: center;
+      }
+
+      h1 {
+        margin-bottom: 0.75rem;
+      }
+
+      p {
+        color: #475569;
+        line-height: 1.6;
+      }
+
+      .status {
+        color: #b45309;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>SMS Gateway</h1>
+      <p class="status">Gateway service is not running yet.</p>
+      <p>
+        This desktop shell will manage campaigns and host the local gateway for
+        connected Android devices.
+      </p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "@sms-gateway/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-renderer.cjs",
+    "start": "npm run build && electron ."
+  },
+  "devDependencies": {
+    "electron": "^45.0.0"
+  }
+}

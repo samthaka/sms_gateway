@@ -1,0 +1,23 @@
+{
+  "name": "sms-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.11.0"
+  },
+  "scripts": {
+    "build": "npm run build --workspace=@sms-gateway/shared-contracts && npm run build --workspace=@sms-gateway/validation && npm run build --workspace=@sms-gateway/message-core && npm run build --workspace=@sms-gateway/api-client && npm run build --workspace=@sms-gateway/desktop",
+    "test": "npm run test --workspace=@sms-gateway/message-core && npm run test --workspace=@sms-gateway/validation && npm run test --workspace=@sms-gateway/mobile",
+    "desktop": "npm run start --workspace=@sms-gateway/desktop",
+    "mobile:start": "npm run start --workspace=@sms-gateway/mobile",
+    "android": "npm run android --workspace=@sms-gateway/mobile",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
