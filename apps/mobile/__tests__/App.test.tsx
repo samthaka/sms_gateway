@@ -7,10 +7,20 @@ import { Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { createGatewayClient } from '@sms-gateway/api-client';
 import {
-  inspectGatewayCertificate,
   setSecureValue,
 } from '../gateway-security';
 import App from '../App';
+import { parsePairingQrPayload } from '../pairing-qr';
+
+const SERVER_ID = '846c9e94-42ef-46cc-8563-254734112f27';
+const PAIRING_QR = {
+  version: 1,
+  baseUrl: 'https://192.168.1.10:47832',
+  certificatePin: 'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+  pairingCode: '123456',
+  serverId: SERVER_ID,
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+};
 
 jest.mock('@sms-gateway/api-client', () => ({
   createGatewayClient: jest.fn(),
@@ -19,29 +29,50 @@ jest.mock('@sms-gateway/api-client', () => ({
 jest.mock('../gateway-security', () => ({
   gatewayTransport: { request: jest.fn() },
   getSecureValue: jest.fn().mockResolvedValue(null),
-  inspectGatewayCertificate: jest.fn(),
   removeSecureValue: jest.fn().mockResolvedValue(undefined),
   setSecureValue: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('react-native-vision-camera', () => {
+  const ReactModule = require('react');
+  const { View: NativeView } = require('react-native');
+  return {
+    Camera: ({ codeScanner }: { codeScanner: unknown }) =>
+      ReactModule.createElement(NativeView, {
+        testID: 'pairing-camera',
+        codeScanner,
+      }),
+    useCameraDevice: () => ({ id: 'back-camera' }),
+    useCameraPermission: () => ({
+      hasPermission: true,
+      requestPermission: jest.fn().mockResolvedValue(true),
+    }),
+    useCodeScanner: (scanner: unknown) => scanner,
+  };
+});
+
 jest.mock('react-native-safe-area-context', () => {
   const ReactModule = require('react');
-  const { View } = require('react-native');
+  const { View: NativeView } = require('react-native');
 
   return {
     SafeAreaProvider: ({
       children,
     }: {
       children: React.ReactNode;
-    }) => ReactModule.createElement(View, null, children),
+    }) => ReactModule.createElement(NativeView, null, children),
     SafeAreaView: ({
       children,
       ...props
     }: {
       children: React.ReactNode;
       [key: string]: unknown;
-    }) => ReactModule.createElement(View, props, children),
+    }) => ReactModule.createElement(NativeView, props, children),
   };
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
 });
 
 function renderApp(): ReactTestRenderer.ReactTestRenderer {
@@ -55,94 +86,53 @@ function renderApp(): ReactTestRenderer.ReactTestRenderer {
   return renderer;
 }
 
-test('asks to inspect the desktop certificate before showing pairing fields', () => {
-  const renderer = renderApp();
-
-  expect(
-    renderer.root.findByProps({ testID: 'gateway-address-input' }),
-  ).toBeTruthy();
-  expect(
-    renderer.root.findByProps({ testID: 'inspect-certificate-button' }),
-  ).toBeTruthy();
-  expect(
-    renderer.root.findAllByProps({ testID: 'pairing-code-input' }),
-  ).toHaveLength(0);
+test('rejects invalid and expired pairing QR payloads', () => {
+  expect(() => parsePairingQrPayload('not json')).toThrow(/not a valid/);
+  expect(() =>
+    parsePairingQrPayload(
+      JSON.stringify({
+        ...PAIRING_QR,
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    ),
+  ).toThrow(/expired/);
 });
 
-test('reveals pairing only after fingerprint inspection and explicit confirmation', async () => {
-  jest.mocked(inspectGatewayCertificate).mockResolvedValue(
-    'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-  );
-  const renderer = renderApp();
-  const inspectButton = renderer.root.findByProps({
-    testID: 'inspect-certificate-button',
-  });
-
-  await ReactTestRenderer.act(async () => {
-    await inspectButton.props.onPress();
-  });
-
-  expect(
-    renderer.root.findByProps({ testID: 'trust-certificate-button' }),
-  ).toBeTruthy();
-  expect(
-    renderer.root.findAllByProps({ testID: 'pairing-code-input' }),
-  ).toHaveLength(0);
-
-  const trustButton = renderer.root.findByProps({
-    testID: 'trust-certificate-button',
-  });
-  ReactTestRenderer.act(() => {
-    trustButton.props.onPress();
-  });
-
-  expect(
-    renderer.root.findByProps({ testID: 'pairing-code-input' }),
-  ).toBeTruthy();
-});
-
-test('pairs the phone and stores its credential using secure storage', async () => {
+test('scans a QR code, verifies the pinned gateway identity, and pairs', async () => {
   const pairDevice = jest.fn().mockResolvedValue({
     deviceId: 'device-test-id',
     deviceName: 'Android gateway',
-    serverId: 'server-test-id',
+    serverId: SERVER_ID,
     token: 'opaque-test-token',
   });
   jest.mocked(createGatewayClient).mockReturnValue({
-    getHealth: jest.fn(),
+    getHealth: jest.fn().mockResolvedValue({ serverId: SERVER_ID }),
     pairDevice,
     getPairedDevice: jest.fn(),
   });
-  jest.mocked(inspectGatewayCertificate).mockResolvedValue(
-    'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-  );
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
-    await renderer.root
-      .findByProps({ testID: 'inspect-certificate-button' })
-      .props.onPress();
-  });
-  ReactTestRenderer.act(() => {
     renderer.root
-      .findByProps({ testID: 'trust-certificate-button' })
+      .findByProps({ testID: 'scan-pairing-qr-button' })
       .props.onPress();
   });
 
-  ReactTestRenderer.act(() => {
-    renderer.root
-      .findByProps({ testID: 'pairing-code-input' })
-      .props.onChangeText('123456');
-  });
-
+  const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
   await ReactTestRenderer.act(async () => {
-    await renderer.root
-      .findByProps({ testID: 'pair-device-button' })
-      .props.onPress();
+    camera.props.codeScanner.onCodeScanned([
+      { value: JSON.stringify(PAIRING_QR) },
+    ]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
 
+  expect(createGatewayClient).toHaveBeenCalledWith(
+    PAIRING_QR.baseUrl,
+    PAIRING_QR.certificatePin,
+    expect.anything(),
+  );
   expect(pairDevice).toHaveBeenCalledWith({
-    code: '123456',
+    code: PAIRING_QR.pairingCode,
     deviceName: 'Android gateway',
   });
   expect(setSecureValue).toHaveBeenCalledWith(
@@ -154,4 +144,35 @@ test('pairs the phone and stores its credential using secure storage', async () 
       .findAllByType(Text)
       .some((text) => text.props.children === 'Device paired'),
   ).toBe(true);
+});
+
+test('does not send the pairing code when the server identity mismatches', async () => {
+  const pairDevice = jest.fn();
+  jest.mocked(createGatewayClient).mockReturnValue({
+    getHealth: jest.fn().mockResolvedValue({
+      serverId: 'e0a9290e-b7f3-4b50-9d08-fd441d3d66ac',
+    }),
+    pairDevice,
+    getPairedDevice: jest.fn(),
+  });
+
+  const renderer = renderApp();
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ testID: 'scan-pairing-qr-button' })
+      .props.onPress();
+  });
+  const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
+  await ReactTestRenderer.act(async () => {
+    camera.props.codeScanner.onCodeScanned([
+      { value: JSON.stringify(PAIRING_QR) },
+    ]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  });
+
+  expect(pairDevice).not.toHaveBeenCalled();
+  expect(setSecureValue).not.toHaveBeenCalledWith(
+    'paired-gateway',
+    expect.any(String),
+  );
 });

@@ -25,6 +25,7 @@ import { pairDeviceRequestSchema } from '@sms-gateway/validation';
 export const DEFAULT_GATEWAY_PORT = 47832;
 const PAIRING_CODE_LIFETIME_MS = 5 * 60 * 1000;
 const MAX_PAIRING_ATTEMPTS = 5;
+const PAIRING_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
 const MAX_REQUEST_BYTES = 4096;
 
 interface StoredDevice extends PairedDevice {
@@ -296,12 +297,32 @@ export async function startGatewayServer(
   const store = await loadDeviceStore(options.storageDir);
   let pairingCode = '';
   let pairingCodeExpiresAt = 0;
-  let pairingAttempts = 0;
+  let pairingInProgress = false;
+  let pairingAttemptTimes: number[] = [];
+  let pairingCodeTimer: ReturnType<typeof setTimeout> | undefined;
 
   const rotatePairingCode = () => {
+    if (pairingInProgress) {
+      return;
+    }
+    if (pairingCodeTimer) {
+      clearTimeout(pairingCodeTimer);
+    }
     pairingCode = randomInt(0, 1_000_000).toString().padStart(6, '0');
     pairingCodeExpiresAt = Date.now() + PAIRING_CODE_LIFETIME_MS;
-    pairingAttempts = 0;
+    pairingInProgress = false;
+    pairingCodeTimer = setTimeout(rotatePairingCode, PAIRING_CODE_LIFETIME_MS);
+    pairingCodeTimer.unref();
+  };
+
+  const prunePairingAttempts = () => {
+    const cutoff = Date.now() - PAIRING_ATTEMPT_WINDOW_MS;
+    pairingAttemptTimes = pairingAttemptTimes.filter((time) => time > cutoff);
+  };
+
+  const recordPairingAttempt = () => {
+    prunePairingAttempts();
+    pairingAttemptTimes.push(Date.now());
   };
 
   const getStatus = (): DesktopGatewayStatus => ({
@@ -336,16 +357,30 @@ export async function startGatewayServer(
     }
 
     if (request.method === 'POST' && request.url === '/v1/pair') {
-      if (Date.now() >= pairingCodeExpiresAt || pairingAttempts >= MAX_PAIRING_ATTEMPTS) {
+      if (pairingInProgress || Date.now() >= pairingCodeExpiresAt) {
         sendJson(response, 410, { error: 'Pairing code expired' });
+        return;
+      }
+      prunePairingAttempts();
+      if (pairingAttemptTimes.length >= MAX_PAIRING_ATTEMPTS) {
+        sendJson(response, 429, { error: 'Too many pairing attempts. Try again later.' });
         return;
       }
 
       const parsed = pairDeviceRequestSchema.safeParse(
         await readJsonBody(request),
       );
+      prunePairingAttempts();
+      if (pairingAttemptTimes.length >= MAX_PAIRING_ATTEMPTS) {
+        sendJson(response, 429, { error: 'Too many pairing attempts. Try again later.' });
+        return;
+      }
+      if (pairingInProgress || Date.now() >= pairingCodeExpiresAt) {
+        sendJson(response, 410, { error: 'Pairing code expired' });
+        return;
+      }
       if (!parsed.success) {
-        pairingAttempts += 1;
+        recordPairingAttempt();
         sendJson(response, 400, { error: 'Invalid pairing request' });
         return;
       }
@@ -356,15 +391,12 @@ export async function startGatewayServer(
         submittedCode.length !== expectedCode.length ||
         !timingSafeEqual(submittedCode, expectedCode)
       ) {
-        pairingAttempts += 1;
-        sendJson(
-          response,
-          pairingAttempts >= MAX_PAIRING_ATTEMPTS ? 410 : 401,
-          { error: 'Pairing code is incorrect or expired' },
-        );
+        recordPairingAttempt();
+        sendJson(response, 401, { error: 'Pairing code is incorrect or expired' });
         return;
       }
 
+      pairingInProgress = true;
       const token = randomBytes(32).toString('base64url');
       const device: StoredDevice = {
         id: randomUUID(),
@@ -377,10 +409,17 @@ export async function startGatewayServer(
         await saveDeviceStore(options.storageDir, store);
       } catch (error) {
         store.devices.pop();
+        pairingInProgress = false;
+        rotatePairingCode();
         throw error;
       }
       pairingCodeExpiresAt = 0;
       pairingCode = '';
+      pairingInProgress = false;
+      if (pairingCodeTimer) {
+        clearTimeout(pairingCodeTimer);
+        pairingCodeTimer = undefined;
+      }
 
       const result: PairDeviceResponse = {
         deviceId: device.id,
@@ -472,6 +511,10 @@ export async function startGatewayServer(
         return Promise.resolve();
       }
       closed = true;
+      if (pairingCodeTimer) {
+        clearTimeout(pairingCodeTimer);
+        pairingCodeTimer = undefined;
+      }
       return new Promise((resolve, reject) => {
         server.close((error) => {
           if (error) {

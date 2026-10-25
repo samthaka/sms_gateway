@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -6,19 +6,24 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { createGatewayClient } from '@sms-gateway/api-client';
 import type { PairDeviceResponse } from '@sms-gateway/shared-contracts';
 import {
+  Camera,
+  useCameraDevice,
+  useCameraPermission,
+  useCodeScanner,
+} from 'react-native-vision-camera';
+import {
   gatewayTransport,
   getSecureValue,
-  inspectGatewayCertificate,
   removeSecureValue,
   setSecureValue,
 } from './gateway-security';
+import { parsePairingQrPayload } from './pairing-qr';
 
 const SAVED_PAIRING_KEY = 'paired-gateway';
 
@@ -32,7 +37,6 @@ interface SavedPairing {
 
 type ConnectionState =
   | { status: 'disconnected' }
-  | { status: 'inspecting' }
   | { status: 'pairing' }
   | { status: 'connected'; pairing: SavedPairing }
   | { status: 'error'; message: string };
@@ -65,33 +69,16 @@ function parseSavedPairing(value: string): SavedPairing {
   };
 }
 
-function normalizeGatewayAddress(value: string): string {
-  const url = new URL(value.trim());
-  if (
-    url.protocol !== 'https:' ||
-    url.username !== '' ||
-    url.password !== '' ||
-    url.pathname !== '/' ||
-    url.search !== '' ||
-    url.hash !== ''
-  ) {
-    throw new TypeError('Enter the desktop HTTPS address, including its port.');
-  }
-  return url.origin;
-}
-
 function App() {
-  const [gatewayAddress, setGatewayAddress] = useState(
-    'https://10.0.2.2:47832',
-  );
-  const [deviceName, setDeviceName] = useState('Android gateway');
-  const [pairingCode, setPairingCode] = useState('');
-  const [observedPin, setObservedPin] = useState<string>();
-  const [trustedPin, setTrustedPin] = useState<string>();
+  const deviceName = 'Android gateway';
+  const [isScanning, setIsScanning] = useState(false);
   const [storedPairing, setStoredPairing] = useState<SavedPairing>();
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'disconnected',
   });
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const cameraDevice = useCameraDevice('back');
+  const scanHandled = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -102,8 +89,6 @@ function App() {
         }
         const saved = parseSavedPairing(value);
         setStoredPairing(saved);
-        setGatewayAddress(saved.baseUrl);
-        setDeviceName(saved.deviceName);
         const client = createGatewayClient(
           saved.baseUrl,
           saved.certificatePin,
@@ -111,8 +96,6 @@ function App() {
         );
         await client.getPairedDevice(saved.token);
         if (active) {
-          setTrustedPin(saved.certificatePin);
-          setObservedPin(saved.certificatePin);
           setConnection({ status: 'connected', pairing: saved });
         }
       })
@@ -132,50 +115,33 @@ function App() {
     };
   }, []);
 
-  async function inspectDesktop() {
-    setConnection({ status: 'inspecting' });
-    setObservedPin(undefined);
-    setTrustedPin(undefined);
-    try {
-      const baseUrl = normalizeGatewayAddress(gatewayAddress);
-      const pin = await inspectGatewayCertificate(
-        new URL('/v1/health', baseUrl).toString(),
-      );
-      setObservedPin(pin);
-      setConnection({ status: 'disconnected' });
-    } catch (error) {
-      setConnection({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Could not inspect the desktop certificate.',
-      });
-    }
-  }
-
-  async function pairWithDesktop() {
-    if (!trustedPin) {
-      setConnection({
-        status: 'error',
-        message: 'Verify the certificate fingerprint before pairing.',
-      });
-      return;
-    }
-
+  async function pairWithQr(value: string) {
     setConnection({ status: 'pairing' });
     try {
-      const baseUrl = normalizeGatewayAddress(gatewayAddress);
+      const payload = parsePairingQrPayload(value);
       await setSecureValue('pairing-storage-check', 'available');
       await removeSecureValue('pairing-storage-check');
-      const client = createGatewayClient(baseUrl, trustedPin, gatewayTransport);
+      const client = createGatewayClient(
+        payload.baseUrl,
+        payload.certificatePin,
+        gatewayTransport,
+      );
+      const health = await client.getHealth();
+      if (health.serverId !== payload.serverId) {
+        throw new Error(
+          'The gateway identity does not match the scanned QR code. Pairing was cancelled.',
+        );
+      }
       const paired: PairDeviceResponse = await client.pairDevice({
-        code: pairingCode.trim(),
+        code: payload.pairingCode,
         deviceName: deviceName.trim(),
       });
+      if (paired.serverId !== payload.serverId) {
+        throw new Error('The gateway returned an unexpected server identity.');
+      }
       const saved: SavedPairing = {
-        baseUrl,
-        certificatePin: trustedPin,
+        baseUrl: payload.baseUrl,
+        certificatePin: payload.certificatePin,
         deviceId: paired.deviceId,
         deviceName: paired.deviceName,
         token: paired.token,
@@ -183,7 +149,6 @@ function App() {
       await setSecureValue(SAVED_PAIRING_KEY, JSON.stringify(saved));
       setStoredPairing(saved);
       setConnection({ status: 'connected', pairing: saved });
-      setPairingCode('');
     } catch (error) {
       setConnection({
         status: 'error',
@@ -196,19 +161,20 @@ function App() {
   }
 
   async function reconnectExistingDevice() {
-    if (!storedPairing || !trustedPin) {
+    if (!storedPairing) {
       return;
     }
 
     setConnection({ status: 'pairing' });
     try {
-      const baseUrl = normalizeGatewayAddress(gatewayAddress);
-      const client = createGatewayClient(baseUrl, trustedPin, gatewayTransport);
+      const client = createGatewayClient(
+        storedPairing.baseUrl,
+        storedPairing.certificatePin,
+        gatewayTransport,
+      );
       const device = await client.getPairedDevice(storedPairing.token);
       const saved: SavedPairing = {
         ...storedPairing,
-        baseUrl,
-        certificatePin: trustedPin,
         deviceName: device.deviceName,
       };
       await setSecureValue(SAVED_PAIRING_KEY, JSON.stringify(saved));
@@ -230,9 +196,7 @@ function App() {
       await removeSecureValue(SAVED_PAIRING_KEY);
       setStoredPairing(undefined);
       setConnection({ status: 'disconnected' });
-      setTrustedPin(undefined);
-      setObservedPin(undefined);
-      setPairingCode('');
+      setIsScanning(false);
     } catch (error) {
       setConnection({
         status: 'error',
@@ -244,10 +208,44 @@ function App() {
     }
   }
 
-  const busy =
-    connection.status === 'inspecting' || connection.status === 'pairing';
+  const busy = connection.status === 'pairing';
   const paired =
     connection.status === 'connected' ? connection.pairing : undefined;
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      const value = codes.find((code) => code.value)?.value;
+      if (!value || scanHandled.current) {
+        return;
+      }
+      scanHandled.current = true;
+      setIsScanning(false);
+      return pairWithQr(value);
+    },
+  });
+
+  async function startScanning() {
+    try {
+      const granted = hasPermission || (await requestPermission());
+      if (!granted) {
+        throw new Error('Camera access is required to scan the desktop QR code.');
+      }
+      if (!cameraDevice) {
+        throw new Error('No camera is available on this device.');
+      }
+      scanHandled.current = false;
+      setConnection({ status: 'disconnected' });
+      setIsScanning(true);
+    } catch (error) {
+      setConnection({
+        status: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Could not start the QR scanner.',
+      });
+    }
+  }
 
   return (
     <SafeAreaProvider>
@@ -257,80 +255,13 @@ function App() {
           <Text style={styles.eyebrow}>SECURE DEVICE PAIRING</Text>
           <Text style={styles.title}>Connect your device</Text>
           <Text style={styles.description}>
-            Pair with the desktop gateway on your local network. The connection
-            uses HTTPS with a certificate pin verified by you.
+            Scan the QR code shown in the desktop app. The QR code supplies the
+            certificate pin and one-time code; the gateway identity is checked
+            before the code is sent.
           </Text>
 
           <View style={styles.card}>
-            <Text style={styles.label}>Desktop HTTPS address</Text>
-            <TextInput
-              accessibilityLabel="Desktop gateway address"
-              testID="gateway-address-input"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!busy && !paired}
-              keyboardType="url"
-              onChangeText={(address) => {
-                setGatewayAddress(address);
-                setObservedPin(undefined);
-                setTrustedPin(undefined);
-                setConnection({ status: 'disconnected' });
-              }}
-              placeholder="https://192.168.1.10:47832"
-              placeholderTextColor="#94a3b8"
-              style={styles.input}
-              value={gatewayAddress}
-            />
             {!paired && (
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy}
-                onPress={inspectDesktop}
-                testID="inspect-certificate-button"
-                style={({ pressed }) => [
-                  styles.button,
-                  styles.secondaryButton,
-                  pressed && styles.buttonPressed,
-                  busy && styles.buttonDisabled,
-                ]}
-              >
-                {connection.status === 'inspecting' ? (
-                  <ActivityIndicator color="#1d4ed8" />
-                ) : (
-                  <Text style={styles.secondaryButtonText}>
-                    Check desktop certificate
-                  </Text>
-                )}
-              </Pressable>
-            )}
-
-            {observedPin && !paired && (
-              <View style={styles.fingerprintPanel}>
-                <Text style={styles.label}>Certificate fingerprint</Text>
-                <Text selectable style={styles.fingerprint}>
-                  {observedPin}
-                </Text>
-                <Text style={styles.warning}>
-                  Compare this exact value with the fingerprint shown on the
-                  desktop. Continue only if they match.
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setTrustedPin(observedPin)}
-                  testID="trust-certificate-button"
-                  style={({ pressed }) => [
-                    styles.button,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text style={styles.buttonText}>
-                    I verified the desktop fingerprint
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {trustedPin && !paired && (
               <View style={styles.pairingFields}>
                 {storedPairing && (
                   <>
@@ -351,49 +282,41 @@ function App() {
                       </Text>
                     </Pressable>
                     <Text style={styles.hint}>
-                      Or pair another device with a new desktop code.
+                      Or pair another device by scanning a new desktop QR code.
                     </Text>
                   </>
                 )}
-                <Text style={styles.label}>One-time pairing code</Text>
-                <TextInput
-                  accessibilityLabel="One-time pairing code"
-                  testID="pairing-code-input"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  onChangeText={setPairingCode}
-                  placeholder="6-digit code from desktop"
-                  placeholderTextColor="#94a3b8"
-                  style={styles.input}
-                  value={pairingCode}
-                />
-                <Text style={styles.label}>Device name</Text>
-                <TextInput
-                  accessibilityLabel="Device name"
-                  onChangeText={setDeviceName}
-                  style={styles.input}
-                  value={deviceName}
-                />
                 <Pressable
                   accessibilityRole="button"
-                  disabled={busy || pairingCode.length !== 6}
-                  onPress={pairWithDesktop}
-                  testID="pair-device-button"
+                  disabled={busy}
+                  onPress={startScanning}
+                  testID="scan-pairing-qr-button"
                   style={({ pressed }) => [
                     styles.button,
                     pressed && styles.buttonPressed,
-                    (busy || pairingCode.length !== 6) &&
-                      styles.buttonDisabled,
+                    busy && styles.buttonDisabled,
                   ]}
                 >
                   {connection.status === 'pairing' ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.buttonText}>Pair device</Text>
+                    <Text style={styles.buttonText}>Scan desktop QR code</Text>
                   )}
                 </Pressable>
+                {isScanning && hasPermission && cameraDevice && (
+                  <View style={styles.cameraFrame}>
+                    <Camera
+                      codeScanner={codeScanner}
+                      device={cameraDevice}
+                      isActive={isScanning}
+                      style={StyleSheet.absoluteFill}
+                      testID="pairing-camera"
+                    />
+                    <Text style={styles.cameraHint}>
+                      Point the camera at a pairing QR code on the desktop.
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -451,9 +374,8 @@ function App() {
 
           {!paired && (
             <Text style={styles.hint}>
-              Android emulator: use https://10.0.2.2:47832. For a physical
-              phone, use an HTTPS address shown in the desktop app. The
-              fingerprint is inspected before any pairing secret is sent.
+              The pairing QR code expires automatically. Keep the desktop app
+              open and scan its current code.
             </Text>
           )}
         </ScrollView>
@@ -499,22 +421,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 18,
   },
-  label: {
-    color: '#334155',
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 9,
-    marginTop: 12,
-  },
-  input: {
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    borderWidth: 1,
-    color: '#0f172a',
-    fontSize: 15,
-    minHeight: 48,
-    paddingHorizontal: 12,
-  },
   button: {
     alignItems: 'center',
     backgroundColor: '#2563eb',
@@ -545,31 +451,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  fingerprintPanel: {
-    borderTopColor: '#e2e8f0',
-    borderTopWidth: 1,
-    marginTop: 20,
-    paddingTop: 8,
-  },
-  fingerprint: {
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
-    color: '#0f172a',
-    fontSize: 12,
-    lineHeight: 18,
-    padding: 10,
-  },
-  warning: {
-    color: '#92400e',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 10,
-  },
   pairingFields: {
     borderTopColor: '#e2e8f0',
     borderTopWidth: 1,
     marginTop: 20,
     paddingTop: 8,
+  },
+  cameraFrame: {
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    height: 320,
+    marginTop: 16,
+    overflow: 'hidden',
+  },
+  cameraHint: {
+    backgroundColor: '#0f172acc',
+    bottom: 0,
+    color: '#fff',
+    fontSize: 13,
+    left: 0,
+    padding: 12,
+    position: 'absolute',
+    right: 0,
+    textAlign: 'center',
   },
   pairedPanel: {
     borderTopColor: '#e2e8f0',

@@ -1,11 +1,20 @@
 import type { DesktopGatewayStatus } from '@sms-gateway/shared-contracts';
 
+interface DesktopPairingQrCode {
+  address: string;
+  dataUrl: string;
+}
+
+interface DesktopDisplayStatus extends DesktopGatewayStatus {
+  pairingQrCodes: DesktopPairingQrCode[];
+}
+
 declare global {
   interface Window {
     smsGateway: {
-      getStatus(): Promise<DesktopGatewayStatus>;
-      rotatePairingCode(): Promise<DesktopGatewayStatus>;
-      revokeDevice(deviceId: string): Promise<DesktopGatewayStatus>;
+      getStatus(): Promise<DesktopDisplayStatus>;
+      rotatePairingCode(): Promise<DesktopDisplayStatus>;
+      revokeDevice(deviceId: string): Promise<DesktopDisplayStatus>;
     };
   }
 }

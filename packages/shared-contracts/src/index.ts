@@ -46,6 +46,15 @@ export interface PairDeviceRequest {
   deviceName: string;
 }
 
+export interface PairingQrPayload {
+  version: 1;
+  baseUrl: string;
+  certificatePin: string;
+  pairingCode: string;
+  serverId: string;
+  expiresAt: string;
+}
+
 export interface PairDeviceResponse {
   deviceId: string;
   deviceName: string;

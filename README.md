@@ -45,17 +45,9 @@ This milestone adds a native Android networking and secure-storage module, so
 rebuild/reinstall Android with `npm run android`; a Metro refresh alone is not
 enough.
 
-When the desktop is running:
+When the desktop and mobile apps  are running:
 
-1. Compare the certificate fingerprint shown by both apps before trusting it.
-   Do not continue if the fingerprints differ.
-2. Enter a desktop address in Android and select **Check desktop certificate**.
-   For the Android emulator on the same computer, use
-   `https://10.0.2.2:47832`; a physical phone uses one of the LAN addresses
-   shown by the desktop. Allow SMS Gateway through the desktop firewall on
-   private networks if prompted.
-3. After verifying the fingerprint, enter the one-time code shown by the
-   desktop. The code expires after five minutes and is invalidated after use.
+1. Open the mobile app, grant camera permissions and scan the QR code on the desktop app.
 4. Revoke paired devices from the desktop. **Forget on this phone** removes
    local credentials only; it does not revoke desktop access.
 

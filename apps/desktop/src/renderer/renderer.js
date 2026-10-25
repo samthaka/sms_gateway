@@ -1,23 +1,21 @@
 const statusElement = document.getElementById('gateway-status');
 const detailsElement = document.getElementById('gateway-details');
 const addressesElement = document.getElementById('gateway-addresses');
-const pairingCodeElement = document.getElementById('pairing-code');
 const pairingExpiryElement = document.getElementById('pairing-expiry');
-const certificatePinElement = document.getElementById('certificate-pin');
+const pairingQrCodesElement = document.getElementById('pairing-qr-codes');
 const devicesElement = document.getElementById('paired-devices');
 
 function renderStatus(status) {
   statusElement.classList.add('ready');
   statusElement.lastChild.textContent = 'Gateway is running';
   detailsElement.hidden = false;
-  pairingCodeElement.textContent = status.pairingCode;
-  certificatePinElement.textContent = status.certificatePin;
   pairingExpiryElement.textContent =
     status.pairingCode === 'expired'
-      ? 'This code expired. Generate a new code to pair a device.'
+      ? 'A new code will be generated automatically.'
       : `One-time code expires at ${new Date(status.pairingCodeExpiresAt).toLocaleTimeString()}.`;
 
   addressesElement.replaceChildren();
+  pairingQrCodesElement.replaceChildren();
   devicesElement.replaceChildren();
 
   if (status.addresses.length === 0) {
@@ -33,6 +31,18 @@ function renderStatus(status) {
     code.textContent = address;
     item.append(code);
     addressesElement.append(item);
+  }
+
+  for (const qrCode of status.pairingQrCodes) {
+    const card = document.createElement('div');
+    card.className = 'qr-card';
+    const image = document.createElement('img');
+    image.alt = `Pairing QR code for ${qrCode.address}`;
+    image.src = qrCode.dataUrl;
+    const label = document.createElement('code');
+    label.textContent = qrCode.address;
+    card.append(image, label);
+    pairingQrCodesElement.append(card);
   }
 
   if (status.pairedDevices.length === 0) {

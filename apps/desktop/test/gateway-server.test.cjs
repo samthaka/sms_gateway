@@ -133,6 +133,27 @@ test('pairs with a one-time code, persists credentials by hash, and supports rev
   );
 });
 
+test('a pairing code can only establish one concurrent link and can be rotated for another device', async (t) => {
+  const { gateway } = await makeServer(t);
+  const client = createClient(gateway);
+  const firstCode = gateway.getStatus().pairingCode;
+  const results = await Promise.allSettled([
+    client.pairDevice({ code: firstCode, deviceName: 'First device' }),
+    client.pairDevice({ code: firstCode, deviceName: 'Racing device' }),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(gateway.getStatus().pairedDevices.length, 1);
+
+  gateway.rotatePairingCode();
+  const second = await client.pairDevice({
+    code: gateway.getStatus().pairingCode,
+    deviceName: 'Second device',
+  });
+  assert.equal(second.deviceName, 'Second device');
+  assert.equal(gateway.getStatus().pairedDevices.length, 2);
+});
+
 test('rejects incorrect pairing codes and enforces the attempt limit', async (t) => {
   const { gateway } = await makeServer(t);
   const client = createClient(gateway);
@@ -142,12 +163,19 @@ test('rejects incorrect pairing codes and enforces the attempt limit', async (t)
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await assert.rejects(
       client.pairDevice({ code: wrongCode, deviceName: 'Untrusted device' }),
-      /status (401|410)/,
+      /status 401/,
     );
   }
   await assert.rejects(
     client.pairDevice({ code: correctCode, deviceName: 'Late device' }),
-    /status 410/,
+    /status 429/,
+  );
+
+  gateway.rotatePairingCode();
+  const rotatedCode = gateway.getStatus().pairingCode;
+  await assert.rejects(
+    client.pairDevice({ code: rotatedCode, deviceName: 'Still limited' }),
+    /status 429/,
   );
 });
 

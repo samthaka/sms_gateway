@@ -12,10 +12,12 @@
   "dependencies": {
     "@sms-gateway/shared-contracts": "^0.1.0",
     "@sms-gateway/validation": "^0.1.0",
+    "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0"
   },
   "devDependencies": {
     "@sms-gateway/api-client": "^0.1.0",
+    "@types/qrcode": "^1.5.6",
     "electron": "^45.0.0"
   }
 }

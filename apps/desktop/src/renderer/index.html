@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SMS Gateway</title>
@@ -95,17 +95,6 @@
         font-size: 0.9rem;
       }
 
-      .pair-code {
-        background: #eff6ff;
-        border-radius: 0.75rem;
-        color: #1d4ed8;
-        display: inline-block;
-        font-size: 2rem;
-        font-weight: 800;
-        letter-spacing: 0.22em;
-        padding: 0.75rem 1rem;
-      }
-
       button {
         background: #fff;
         border: 1px solid #cbd5e1;
@@ -140,6 +129,25 @@
         flex-wrap: wrap;
         gap: 1rem;
       }
+
+      .qr-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .qr-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        text-align: center;
+      }
+
+      .qr-card img {
+        display: block;
+        height: 14rem;
+        width: 14rem;
+      }
     </style>
     <script src="./renderer.js" defer></script>
   </head>
@@ -158,25 +166,24 @@
           Starting local gateway…
         </p>
         <div id="gateway-details" hidden>
-          <h3>1. Verify the desktop certificate</h3>
           <p class="muted">
-            Compare this fingerprint with the one shown in Android before
-            trusting the desktop. Do not continue if they differ.
+            Scan a QR code from your phone to verify this desktop's certificate
+            and pair it. Each code is one-time and expires automatically.
           </p>
-          <p><code id="certificate-pin"></code></p>
           <p>Desktop addresses:</p>
           <ul id="gateway-addresses" class="address-list"></ul>
           <p class="muted">
             Android emulator: use
             <code>https://10.0.2.2:47832</code>.
           </p>
-          <h3>2. Pair a trusted device</h3>
+          <h3>Pair a trusted device</h3>
+          <div id="pairing-qr-codes" class="qr-list"></div>
           <div class="code-row">
-            <span id="pairing-code" class="pair-code"></span>
-            <button id="rotate-code" type="button">Generate new code</button>
+            <button id="rotate-code" type="button">Generate new QR code</button>
           </div>
           <p id="pairing-expiry" class="muted">
-            This one-time code expires in five minutes.
+            A new pairing code is generated automatically after expiry until a
+            device is paired.
           </p>
           <h3>Paired devices</h3>
           <div id="paired-devices"></div>
