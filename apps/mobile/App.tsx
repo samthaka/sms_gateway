@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,12 +19,14 @@ import {
   useCodeScanner,
 } from 'react-native-vision-camera';
 import {
+  getDeviceName,
   gatewayTransport,
   getSecureValue,
   removeSecureValue,
   setSecureValue,
 } from './gateway-security';
 import { parsePairingQrPayload } from './pairing-qr';
+import { getPairingDeviceName } from './device-name';
 
 const SAVED_PAIRING_KEY = 'paired-gateway';
 
@@ -70,7 +73,6 @@ function parseSavedPairing(value: string): SavedPairing {
 }
 
 function App() {
-  const deviceName = 'Android gateway';
   const [isScanning, setIsScanning] = useState(false);
   const [storedPairing, setStoredPairing] = useState<SavedPairing>();
   const [connection, setConnection] = useState<ConnectionState>({
@@ -132,9 +134,14 @@ function App() {
           'The gateway identity does not match the scanned QR code. Pairing was cancelled.',
         );
       }
+      const configuredDeviceName = await getDeviceName();
+      const pairingDeviceName = getPairingDeviceName(
+        configuredDeviceName,
+        Platform.OS === 'android' ? Platform.constants.Model : undefined,
+      );
       const paired: PairDeviceResponse = await client.pairDevice({
         code: payload.pairingCode,
-        deviceName: deviceName.trim(),
+        deviceName: pairingDeviceName,
       });
       if (paired.serverId !== payload.serverId) {
         throw new Error('The gateway returned an unexpected server identity.');

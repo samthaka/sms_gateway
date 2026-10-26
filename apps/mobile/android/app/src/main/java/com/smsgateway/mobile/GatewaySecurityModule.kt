@@ -2,6 +2,7 @@ package com.smsgateway.mobile
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.provider.Settings
 import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -58,6 +59,20 @@ class GatewaySecurityModule(
   }
 
   override fun getName(): String = NAME
+
+  @ReactMethod
+  fun getDeviceName(promise: Promise) {
+    try {
+      promise.resolve(
+        Settings.Global.getString(
+          reactContext.contentResolver,
+          Settings.Global.DEVICE_NAME,
+        ),
+      )
+    } catch (error: Exception) {
+      promise.reject("DEVICE_NAME_UNAVAILABLE", error.message, error)
+    }
+  }
 
   @ReactMethod
   fun inspectCertificate(urlText: String, promise: Promise) {

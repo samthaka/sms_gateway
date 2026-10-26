@@ -5,6 +5,7 @@ import type {
 } from '@sms-gateway/api-client';
 
 interface GatewaySecurityNativeModule {
+  getDeviceName(): Promise<string | null>;
   inspectCertificate(url: string): Promise<string>;
   requestPinned(
     url: string,
@@ -30,6 +31,10 @@ function getNativeModule(): GatewaySecurityNativeModule {
 
 export function inspectGatewayCertificate(healthUrl: string): Promise<string> {
   return getNativeModule().inspectCertificate(healthUrl);
+}
+
+export function getDeviceName(): Promise<string | null> {
+  return getNativeModule().getDeviceName();
 }
 
 export const gatewayTransport: GatewayTransport = {

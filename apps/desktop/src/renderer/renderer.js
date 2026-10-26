@@ -11,7 +11,7 @@ function renderStatus(status) {
   detailsElement.hidden = false;
   pairingExpiryElement.textContent =
     status.pairingCode === 'expired'
-      ? 'A new code will be generated automatically.'
+      ? ''
       : `One-time code expires at ${new Date(status.pairingCodeExpiresAt).toLocaleTimeString()}.`;
 
   addressesElement.replaceChildren();
@@ -58,7 +58,7 @@ function renderStatus(status) {
     row.className = 'device-row';
     const label = document.createElement('span');
     label.className = 'device-name';
-    label.textContent = `${device.name} · paired ${new Date(device.pairedAt).toLocaleString()}`;
+    label.textContent = `${device.name} · Paired on ${new Date(device.pairedAt).toLocaleString()}`;
     const revoke = document.createElement('button');
     revoke.type = 'button';
     revoke.textContent = 'Revoke';

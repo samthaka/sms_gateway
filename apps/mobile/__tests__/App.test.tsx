@@ -7,10 +7,12 @@ import { Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { createGatewayClient } from '@sms-gateway/api-client';
 import {
+  getDeviceName,
   setSecureValue,
 } from '../gateway-security';
 import App from '../App';
 import { parsePairingQrPayload } from '../pairing-qr';
+import { getPairingDeviceName } from '../device-name';
 
 const SERVER_ID = '846c9e94-42ef-46cc-8563-254734112f27';
 const PAIRING_QR = {
@@ -28,6 +30,7 @@ jest.mock('@sms-gateway/api-client', () => ({
 
 jest.mock('../gateway-security', () => ({
   gatewayTransport: { request: jest.fn() },
+  getDeviceName: jest.fn().mockResolvedValue(null),
   getSecureValue: jest.fn().mockResolvedValue(null),
   removeSecureValue: jest.fn().mockResolvedValue(undefined),
   setSecureValue: jest.fn().mockResolvedValue(undefined),
@@ -98,10 +101,19 @@ test('rejects invalid and expired pairing QR payloads', () => {
   ).toThrow(/expired/);
 });
 
+test('prefers the configured phone name and falls back to the Android model', () => {
+  expect(getPairingDeviceName('  PocoX7  ', '24095PCADG')).toBe('PocoX7');
+  expect(getPairingDeviceName('  ', '24095PCADG')).toBe('24095PCADG');
+  expect(getPairingDeviceName(null, undefined)).toBe('Android device');
+  expect(getPairingDeviceName('X'.repeat(80), undefined)).toHaveLength(60);
+});
+
 test('scans a QR code, verifies the pinned gateway identity, and pairs', async () => {
+  const deviceName = 'PocoX7';
+  jest.mocked(getDeviceName).mockResolvedValue(deviceName);
   const pairDevice = jest.fn().mockResolvedValue({
     deviceId: 'device-test-id',
-    deviceName: 'Android gateway',
+    deviceName,
     serverId: SERVER_ID,
     token: 'opaque-test-token',
   });
@@ -133,7 +145,7 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
   );
   expect(pairDevice).toHaveBeenCalledWith({
     code: PAIRING_QR.pairingCode,
-    deviceName: 'Android gateway',
+    deviceName,
   });
   expect(setSecureValue).toHaveBeenCalledWith(
     'paired-gateway',
