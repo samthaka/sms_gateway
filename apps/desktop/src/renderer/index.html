@@ -28,8 +28,23 @@
         padding: 4rem 2rem;
       }
 
+      .page-header {
+        align-items: flex-start;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .page-header > div {
+        min-width: 0;
+      }
+
       h1, h2 {
         color: #0f172a;
+      }
+
+      h1 {
+        margin-top: 0;
       }
 
       p {
@@ -109,6 +124,28 @@
         background: #f1f5f9;
       }
 
+      button:focus-visible {
+        outline: 3px solid #93c5fd;
+        outline-offset: 2px;
+      }
+
+      .add-button {
+        align-items: center;
+        border-radius: 50%;
+        display: inline-flex;
+        flex: 0 0 auto;
+        font-size: 1.5rem;
+        height: 2.75rem;
+        justify-content: center;
+        line-height: 1;
+        padding: 0;
+        width: 2.75rem;
+      }
+
+      .back-button {
+        margin-bottom: 1rem;
+      }
+
       .device-row {
         align-items: center;
         border-top: 1px solid #e2e8f0;
@@ -170,50 +207,72 @@
   </head>
   <body>
     <main>
-      <p class="eyebrow">Local SMS gateway</p>
-      <h1>SMS Gateway</h1>
-      <p>
-        Connect an Android device on this network. Message delivery and SIM
-        controls are not enabled yet.
-      </p>
-      <section class="card" aria-labelledby="connection-title">
-        <h2 id="connection-title">Gateway connection</h2>
-        <p id="gateway-status" class="status" role="status">
-          <span class="dot" aria-hidden="true"></span>
-          Starting local gateway…
-        </p>
-        <div id="gateway-details" hidden>
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Local SMS gateway</p>
+          <h1>SMS Gateway</h1>
+          <p>
+            Upload spreadsheets on this computer or connect an Android device.
+          </p>
+        </div>
+        <button
+          id="open-connection"
+          class="add-button"
+          type="button"
+          aria-label="Open connection and linking"
+          title="Connect a device"
+        >+</button>
+      </header>
+      <section id="uploads-page" aria-labelledby="uploads-title">
+        <div class="card">
+          <h2 id="uploads-title">Spreadsheet uploads</h2>
           <p class="muted">
-            Scan a QR code from your phone to connect
+            Upload an Excel spreadsheet (.xls or .xlsx). Uploaded files are saved
+            on this computer and will be available when you reopen the app.
           </p>
-          <p>Desktop addresses:</p>
-          <ul id="gateway-addresses" class="address-list"></ul>
-          <p class="muted">
-            Android emulator: use
-            <code>https://10.0.2.2:47832</code>.
-          </p>
-          <h3>Pair a trusted device</h3>
-          <div id="pairing-qr-codes" class="qr-list"></div>
-          <div class="code-row">
-            <button id="rotate-code" type="button">Generate new QR code</button>
-          </div>
-          <p id="pairing-expiry" class="muted">
-            A new pairing code is generated automatically after expiry until a
-            device is paired.
-          </p>
-          <h3>Paired devices</h3>
-          <div id="paired-devices"></div>
+          <button id="upload-spreadsheet" type="button">Choose spreadsheet</button>
+          <p id="upload-message" class="muted" role="status"></p>
+          <ul id="spreadsheet-uploads" class="upload-list"></ul>
         </div>
       </section>
-      <section class="card" aria-labelledby="uploads-title">
-        <h2 id="uploads-title">Spreadsheet uploads</h2>
-        <p class="muted">
-          Upload an Excel spreadsheet (.xls or .xlsx). Uploaded files are saved
-          on this computer and will be available when you reopen the app.
-        </p>
-        <button id="upload-spreadsheet" type="button">Choose spreadsheet</button>
-        <p id="upload-message" class="muted" role="status"></p>
-        <ul id="spreadsheet-uploads" class="upload-list"></ul>
+      <section
+        id="connection-page"
+        aria-labelledby="connection-title"
+        hidden
+      >
+        <button id="back-to-uploads" class="back-button" type="button">
+          Back to uploads
+        </button>
+        <h2 id="connection-title">Connection / Linking</h2>
+        <section class="card" aria-labelledby="gateway-title">
+          <h3 id="gateway-title">Gateway connection</h3>
+          <p id="gateway-status" class="status" role="status">
+            <span class="dot" aria-hidden="true"></span>
+            Starting local gateway…
+          </p>
+          <div id="gateway-details" hidden>
+            <p class="muted">
+              Scan a QR code from your phone to connect
+            </p>
+            <p>Desktop addresses:</p>
+            <ul id="gateway-addresses" class="address-list"></ul>
+            <p class="muted">
+              Android emulator: use
+              <code>https://10.0.2.2:47832</code>.
+            </p>
+            <h4>Pair a trusted device</h4>
+            <div id="pairing-qr-codes" class="qr-list"></div>
+            <div class="code-row">
+              <button id="rotate-code" type="button">Generate new QR code</button>
+            </div>
+            <p id="pairing-expiry" class="muted">
+              A new pairing code is generated automatically after expiry until a
+              device is paired.
+            </p>
+            <h4>Paired devices</h4>
+            <div id="paired-devices"></div>
+          </div>
+        </section>
       </section>
     </main>
   </body>
