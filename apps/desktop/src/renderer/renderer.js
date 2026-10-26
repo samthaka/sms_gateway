@@ -7,6 +7,22 @@ const devicesElement = document.getElementById('paired-devices');
 const uploadButton = document.getElementById('upload-spreadsheet');
 const uploadMessageElement = document.getElementById('upload-message');
 const uploadsElement = document.getElementById('spreadsheet-uploads');
+const uploadsPageElement = document.getElementById('uploads-page');
+const connectionPageElement = document.getElementById('connection-page');
+const openConnectionButton = document.getElementById('open-connection');
+const backToUploadsButton = document.getElementById('back-to-uploads');
+
+openConnectionButton.addEventListener('click', () => {
+  uploadsPageElement.hidden = true;
+  connectionPageElement.hidden = false;
+  backToUploadsButton.focus();
+});
+
+backToUploadsButton.addEventListener('click', () => {
+  connectionPageElement.hidden = true;
+  uploadsPageElement.hidden = false;
+  openConnectionButton.focus();
+});
 
 function renderUploads(uploads) {
   uploadsElement.replaceChildren();
