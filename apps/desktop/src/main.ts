@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import QRCode from 'qrcode';
 import path from 'node:path';
 import { startGatewayServer, type GatewayRuntime } from './gateway-server';
+import { listSpreadsheetUploads, storeSpreadsheetUpload } from './upload-storage';
 import type { DesktopGatewayStatus, PairingQrPayload } from '@sms-gateway/shared-contracts';
 
 let gateway: GatewayRuntime | undefined;
@@ -87,6 +88,32 @@ ipcMain.handle('gateway:revoke-device', async (_event, deviceId: unknown) => {
   }
   await gateway.revokeDevice(deviceId);
   return getDisplayStatus();
+});
+
+ipcMain.handle('uploads:list-spreadsheets', () =>
+  listSpreadsheetUploads(path.join(app.getPath('userData'), 'uploads')),
+);
+
+ipcMain.handle('uploads:select-spreadsheet', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Excel spreadsheets', extensions: ['xls', 'xlsx'] },
+    ],
+  });
+  const uploaded = !result.canceled && result.filePaths.length > 0;
+  if (uploaded) {
+    await storeSpreadsheetUpload(
+      path.join(app.getPath('userData'), 'uploads'),
+      result.filePaths[0],
+    );
+  }
+  return {
+    uploads: await listSpreadsheetUploads(
+      path.join(app.getPath('userData'), 'uploads'),
+    ),
+    uploaded,
+  };
 });
 
 app.whenReady()
