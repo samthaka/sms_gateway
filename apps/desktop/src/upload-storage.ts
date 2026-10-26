@@ -7,6 +7,7 @@ import {
   rename,
   rm,
   stat,
+  unlink,
 } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -100,4 +101,12 @@ export async function getSpreadsheetUploadPath(
     throw new Error('Spreadsheet upload was not found');
   }
   return path.join(uploadDir, `${upload.id}--${upload.name}`);
+}
+
+export async function deleteSpreadsheetUpload(
+  uploadDir: string,
+  uploadId: string,
+): Promise<void> {
+  const uploadPath = await getSpreadsheetUploadPath(uploadDir, uploadId);
+  await unlink(uploadPath);
 }

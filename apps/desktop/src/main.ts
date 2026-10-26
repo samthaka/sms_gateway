@@ -2,7 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import QRCode from 'qrcode';
 import path from 'node:path';
 import { startGatewayServer, type GatewayRuntime } from './gateway-server';
-import { listSpreadsheetUploads, storeSpreadsheetUpload } from './upload-storage';
+import {
+  deleteSpreadsheetUpload,
+  listSpreadsheetUploads,
+  storeSpreadsheetUpload,
+} from './upload-storage';
 import { readSpreadsheetSheets } from './spreadsheet-reader';
 import type { DesktopGatewayStatus, PairingQrPayload } from '@sms-gateway/shared-contracts';
 
@@ -94,6 +98,15 @@ ipcMain.handle('gateway:revoke-device', async (_event, deviceId: unknown) => {
 ipcMain.handle('uploads:list-spreadsheets', () =>
   listSpreadsheetUploads(path.join(app.getPath('userData'), 'uploads')),
 );
+
+ipcMain.handle('uploads:delete-spreadsheet', async (_event, uploadId: unknown) => {
+  if (typeof uploadId !== 'string') {
+    throw new TypeError('Spreadsheet ID must be a string');
+  }
+  const uploadDir = path.join(app.getPath('userData'), 'uploads');
+  await deleteSpreadsheetUpload(uploadDir, uploadId);
+  return listSpreadsheetUploads(uploadDir);
+});
 
 ipcMain.handle('uploads:select-spreadsheet', async () => {
   const result = await dialog.showOpenDialog({

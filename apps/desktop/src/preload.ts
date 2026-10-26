@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('smsGateway', {
     ipcRenderer.invoke('gateway:revoke-device', deviceId),
   listSpreadsheetUploads: (): Promise<SpreadsheetUpload[]> =>
     ipcRenderer.invoke('uploads:list-spreadsheets'),
+  deleteSpreadsheetUpload: (uploadId: string): Promise<SpreadsheetUpload[]> =>
+    ipcRenderer.invoke('uploads:delete-spreadsheet', uploadId),
   selectSpreadsheet: (): Promise<SpreadsheetUploadSelection> =>
     ipcRenderer.invoke('uploads:select-spreadsheet'),
   readSpreadsheetSheets: (uploadId: string): Promise<SpreadsheetSheet[]> =>

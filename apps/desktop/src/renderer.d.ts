@@ -24,6 +24,7 @@ declare global {
       rotatePairingCode(): Promise<DesktopDisplayStatus>;
       revokeDevice(deviceId: string): Promise<DesktopDisplayStatus>;
       listSpreadsheetUploads(): Promise<SpreadsheetUpload[]>;
+      deleteSpreadsheetUpload(uploadId: string): Promise<SpreadsheetUpload[]>;
       selectSpreadsheet(): Promise<SpreadsheetUploadSelection>;
       readSpreadsheetSheets(uploadId: string): Promise<SpreadsheetSheet[]>;
     };
