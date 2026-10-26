@@ -4,6 +4,8 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  deleteSpreadsheetUpload,
+  getSpreadsheetUploadPath,
   isSpreadsheetFile,
   listSpreadsheetUploads,
   storeSpreadsheetUpload,
@@ -26,6 +28,29 @@ test('stores spreadsheets and lists them again from persistent storage', async (
     'spreadsheet contents',
   );
   assert.deepEqual(await listSpreadsheetUploads(uploadDir), [saved]);
+});
+
+test('permanently deletes a saved spreadsheet and rejects unknown IDs', async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'sms-gateway-uploads-'));
+  t.after(() => rm(rootDir, { recursive: true, force: true }));
+  const uploadDir = path.join(rootDir, 'uploads');
+  const sourcePath = path.join(rootDir, 'Contacts.xlsx');
+  await writeFile(sourcePath, 'spreadsheet contents');
+  const saved = await storeSpreadsheetUpload(uploadDir, sourcePath);
+  const savedPath = await getSpreadsheetUploadPath(uploadDir, saved.id);
+
+  await deleteSpreadsheetUpload(uploadDir, saved.id);
+
+  await assert.rejects(readFile(savedPath), { code: 'ENOENT' });
+  assert.deepEqual(await listSpreadsheetUploads(uploadDir), []);
+  await assert.rejects(
+    deleteSpreadsheetUpload(uploadDir, saved.id),
+    /Spreadsheet upload was not found/,
+  );
+  await assert.rejects(
+    deleteSpreadsheetUpload(uploadDir, '../Contacts.xlsx'),
+    /Spreadsheet ID is invalid/,
+  );
 });
 
 test('only accepts .xls and .xlsx extensions and ignores temporary files', async (t) => {
