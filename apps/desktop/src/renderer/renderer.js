@@ -176,12 +176,42 @@ function renderUploads(uploads) {
 
   for (const upload of uploads) {
     const item = document.createElement('li');
+    const details = document.createElement('span');
+    details.className = 'upload-details';
     const name = document.createElement('span');
     name.textContent = upload.name;
     const size = document.createElement('span');
     size.className = 'muted';
     size.textContent = `${(upload.size / 1024).toFixed(1)} KB`;
-    item.append(name, size);
+    details.append(name, size);
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'delete-upload-button';
+    deleteButton.type = 'button';
+    deleteButton.textContent = 'Delete';
+    deleteButton.setAttribute('aria-label', `Delete ${upload.name}`);
+    deleteButton.addEventListener('click', async () => {
+      if (!window.confirm(`Permanently delete ${upload.name} from this computer?`)) {
+        return;
+      }
+      deleteButton.disabled = true;
+      uploadMessageElement.textContent = '';
+      try {
+        const remainingUploads =
+          await window.smsGateway.deleteSpreadsheetUpload(upload.id);
+        renderUploads(remainingUploads);
+        await renderActiveSpreadsheetOptions(
+          remainingUploads,
+          spreadsheetSelect.value,
+        );
+        uploadMessageElement.textContent =
+          `Permanently deleted ${upload.name} from this computer.`;
+      } catch (error) {
+        uploadMessageElement.textContent =
+          `Could not delete ${upload.name}: ${error.message}`;
+        deleteButton.disabled = false;
+      }
+    });
+    item.append(details, deleteButton);
     uploadsElement.append(item);
   }
 }
