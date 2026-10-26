@@ -16,11 +16,13 @@ messages through a user-selected SIM.
 - `db` - SQLite schema and migrations as the persistence layer is implemented.
 
 The desktop hosts a LAN gateway on port `47832` over HTTPS. Android devices pair
-with a short-lived code after manually verifying the desktop certificate
-fingerprint. Paired device credentials are stored as hashes on desktop and
-encrypted with Android Keystore on the phone. This milestone does not yet queue
-or send SMS. The desktop app can save uploaded Excel spreadsheets (.xls and
-.xlsx) in its per-user application data directory.
+with a short-lived QR code. Paired device credentials are stored as hashes on desktop and
+encrypted with Android Keystore on the phone. This milestone does not yet queue or send SMS. The desktop app can save uploaded
+Excel spreadsheets (.xls and .xlsx) in its per-user application data directory,
+select a single workbook and worksheet, and compose a personalized message
+template using spreadsheet column headers. The template preview uses the first
+data row; actual SMS delivery and per-row message generation are not yet
+implemented.
 
 ## Requirements
 
