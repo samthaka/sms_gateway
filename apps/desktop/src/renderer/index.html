@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SMS Gateway</title>
@@ -17,20 +17,19 @@
       }
 
       body {
-        display: grid;
         min-height: 100vh;
         margin: 0;
-        place-items: center;
       }
 
       main {
-        max-width: 36rem;
-        padding: 2rem;
-        text-align: center;
+        box-sizing: border-box;
+        margin: 0 auto;
+        max-width: 56rem;
+        padding: 4rem 2rem;
       }
 
-      h1 {
-        margin-bottom: 0.75rem;
+      h1, h2 {
+        color: #0f172a;
       }
 
       p {
@@ -38,20 +37,157 @@
         line-height: 1.6;
       }
 
+      .eyebrow {
+        color: #2563eb;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1rem;
+        margin-top: 2rem;
+        padding: 1.5rem;
+      }
+
       .status {
+        align-items: center;
+        display: flex;
+        gap: 0.6rem;
         color: #b45309;
         font-weight: 600;
       }
+
+      .dot {
+        background: currentColor;
+        border-radius: 50%;
+        height: 0.65rem;
+        width: 0.65rem;
+      }
+
+      .ready {
+        color: #15803d;
+      }
+
+      .address-list {
+        display: grid;
+        gap: 0.75rem;
+        list-style: none;
+        margin: 1rem 0;
+        padding: 0;
+      }
+
+      .address-list code {
+        background: #f1f5f9;
+        border-radius: 0.4rem;
+        color: #0f172a;
+        display: inline-block;
+        font-size: 0.95rem;
+        padding: 0.65rem 0.8rem;
+        user-select: all;
+      }
+
+      .muted {
+        color: #64748b;
+        font-size: 0.9rem;
+      }
+
+      button {
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.5rem;
+        color: #334155;
+        cursor: pointer;
+        font: inherit;
+        padding: 0.55rem 0.8rem;
+      }
+
+      button:hover {
+        background: #f1f5f9;
+      }
+
+      .device-row {
+        align-items: center;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.8rem 0;
+      }
+
+      .device-name {
+        color: #0f172a;
+        font-weight: 600;
+      }
+
+      .code-row {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .qr-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .qr-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        text-align: center;
+      }
+
+      .qr-card img {
+        display: block;
+        height: 14rem;
+        width: 14rem;
+      }
     </style>
+    <script src="./renderer.js" defer></script>
   </head>
   <body>
     <main>
+      <p class="eyebrow">Local SMS gateway</p>
       <h1>SMS Gateway</h1>
-      <p class="status">Gateway service is not running yet.</p>
       <p>
-        This desktop shell will manage campaigns and host the local gateway for
-        connected Android devices.
+        Connect an Android device on this network. Message delivery and SIM
+        controls are not enabled yet.
       </p>
+      <section class="card" aria-labelledby="connection-title">
+        <h2 id="connection-title">Gateway connection</h2>
+        <p id="gateway-status" class="status" role="status">
+          <span class="dot" aria-hidden="true"></span>
+          Starting local gateway…
+        </p>
+        <div id="gateway-details" hidden>
+          <p class="muted">
+            Scan a QR code from your phone to connect
+          </p>
+          <p>Desktop addresses:</p>
+          <ul id="gateway-addresses" class="address-list"></ul>
+          <p class="muted">
+            Android emulator: use
+            <code>https://10.0.2.2:47832</code>.
+          </p>
+          <h3>Pair a trusted device</h3>
+          <div id="pairing-qr-codes" class="qr-list"></div>
+          <div class="code-row">
+            <button id="rotate-code" type="button">Generate new QR code</button>
+          </div>
+          <p id="pairing-expiry" class="muted">
+            A new pairing code is generated automatically after expiry until a
+            device is paired.
+          </p>
+          <h3>Paired devices</h3>
+          <div id="paired-devices"></div>
+        </div>
+      </section>
     </main>
   </body>
 </html>

@@ -9,3 +9,7 @@ fs.copyFileSync(
   path.join(source, 'index.html'),
   path.join(destination, 'index.html'),
 );
+fs.copyFileSync(
+  path.join(source, 'renderer.js'),
+  path.join(destination, 'renderer.js'),
+);

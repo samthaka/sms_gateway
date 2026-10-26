@@ -11,3 +11,31 @@ export const gatewayHealthSchema = z.object({
   protocolVersion: z.literal(1),
   serverId: z.string().min(1),
 });
+
+export const pairDeviceRequestSchema = z.object({
+  code: z.string().regex(/^\d{6}$/),
+  deviceName: z.string().trim().min(1).max(60),
+});
+
+export const pairingQrPayloadSchema = z.object({
+  version: z.literal(1),
+  baseUrl: z.string().url(),
+  certificatePin: z.string().regex(/^sha256\/[A-Za-z0-9+/]{43}=$/),
+  pairingCode: z.string().regex(/^\d{6}$/),
+  serverId: z.string().uuid(),
+  expiresAt: z.string().datetime(),
+}).strict();
+
+export const pairDeviceResponseSchema = z.object({
+  deviceId: z.string().uuid(),
+  deviceName: z.string().min(1),
+  serverId: z.string().uuid(),
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+
+export const pairedDeviceInfoSchema = z.object({
+  deviceId: z.string().uuid(),
+  deviceName: z.string().min(1),
+  pairedAt: z.string().datetime(),
+  serverId: z.string().uuid(),
+});
