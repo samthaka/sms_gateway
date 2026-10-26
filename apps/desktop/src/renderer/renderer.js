@@ -4,6 +4,56 @@ const addressesElement = document.getElementById('gateway-addresses');
 const pairingExpiryElement = document.getElementById('pairing-expiry');
 const pairingQrCodesElement = document.getElementById('pairing-qr-codes');
 const devicesElement = document.getElementById('paired-devices');
+const uploadButton = document.getElementById('upload-spreadsheet');
+const uploadMessageElement = document.getElementById('upload-message');
+const uploadsElement = document.getElementById('spreadsheet-uploads');
+
+function renderUploads(uploads) {
+  uploadsElement.replaceChildren();
+  if (uploads.length === 0) {
+    const item = document.createElement('li');
+    item.className = 'muted';
+    item.textContent = 'No spreadsheets uploaded yet.';
+    uploadsElement.append(item);
+    return;
+  }
+
+  for (const upload of uploads) {
+    const item = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = upload.name;
+    const size = document.createElement('span');
+    size.className = 'muted';
+    size.textContent = `${(upload.size / 1024).toFixed(1)} KB`;
+    item.append(name, size);
+    uploadsElement.append(item);
+  }
+}
+
+uploadButton.addEventListener('click', async () => {
+  uploadButton.disabled = true;
+  uploadMessageElement.textContent = '';
+  try {
+    const selection = await window.smsGateway.selectSpreadsheet();
+    renderUploads(selection.uploads);
+    if (selection.uploaded) {
+      uploadMessageElement.textContent =
+        'Spreadsheet saved on this computer.';
+    }
+  } catch (error) {
+    uploadMessageElement.textContent =
+      `Could not save the spreadsheet: ${error.message}`;
+  } finally {
+    uploadButton.disabled = false;
+  }
+});
+
+window.smsGateway.listSpreadsheetUploads()
+  .then(renderUploads)
+  .catch((error) => {
+    uploadMessageElement.textContent =
+      `Could not load saved spreadsheets: ${error.message}`;
+  });
 
 function renderStatus(status) {
   statusElement.classList.add('ready');

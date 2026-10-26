@@ -19,7 +19,8 @@ The desktop hosts a LAN gateway on port `47832` over HTTPS. Android devices pair
 with a short-lived code after manually verifying the desktop certificate
 fingerprint. Paired device credentials are stored as hashes on desktop and
 encrypted with Android Keystore on the phone. This milestone does not yet queue
-or send SMS or import documents.
+or send SMS. The desktop app can save uploaded Excel spreadsheets (.xls and
+.xlsx) in its per-user application data directory.
 
 ## Requirements
 
@@ -48,8 +49,9 @@ enough.
 When the desktop and mobile apps  are running:
 
 1. Open the mobile app, grant camera permissions and scan the QR code on the desktop app.
-4. Revoke paired devices from the desktop. **Forget on this phone** removes
+2. Revoke paired devices from the desktop. **Forget on this phone** removes
    local credentials only; it does not revoke desktop access.
+3. Upload a spreadsheet.
 
 The Android app needs native SMS permission and SIM selection/send integration
 before it can transmit messages; those are not included in this milestone.
