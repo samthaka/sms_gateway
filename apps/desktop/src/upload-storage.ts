@@ -81,3 +81,23 @@ export async function listSpreadsheetUploads(
   );
   return uploads.sort((left, right) => left.name.localeCompare(right.name));
 }
+
+export async function getSpreadsheetUploadPath(
+  uploadDir: string,
+  uploadId: string,
+): Promise<string> {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      uploadId,
+    )
+  ) {
+    throw new TypeError('Spreadsheet ID is invalid');
+  }
+
+  const upload = (await listSpreadsheetUploads(uploadDir))
+    .find((entry) => entry.id === uploadId);
+  if (!upload) {
+    throw new Error('Spreadsheet upload was not found');
+  }
+  return path.join(uploadDir, `${upload.id}--${upload.name}`);
+}

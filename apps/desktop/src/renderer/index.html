@@ -110,6 +110,10 @@
         font-size: 0.9rem;
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
       button {
         background: #fff;
         border: 1px solid #cbd5e1;
@@ -202,6 +206,47 @@
         gap: 1rem;
         padding: 0.75rem;
       }
+
+      .field-row {
+        display: grid;
+        gap: 0.5rem;
+        margin: 1rem 0;
+      }
+
+      .field-row select,
+      .field-row textarea {
+        border: 1px solid #cbd5e1;
+        border-radius: 0.5rem;
+        box-sizing: border-box;
+        font: inherit;
+        padding: 0.7rem;
+        width: 100%;
+      }
+
+      .field-row textarea {
+        min-height: 8rem;
+        resize: vertical;
+      }
+
+      .field-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .field-chip {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        color: #1d4ed8;
+      }
+
+      .preview {
+        background: #f8fafc;
+        border-radius: 0.5rem;
+        min-height: 1.5rem;
+        padding: 0.75rem;
+        white-space: pre-wrap;
+      }
     </style>
     <script src="./renderer.js" defer></script>
   </head>
@@ -233,6 +278,34 @@
           <button id="upload-spreadsheet" type="button">Choose spreadsheet</button>
           <p id="upload-message" class="muted" role="status"></p>
           <ul id="spreadsheet-uploads" class="upload-list"></ul>
+        </div>
+        <div class="card">
+          <h2 id="template-title">Message template</h2>
+          <p class="muted">
+            Select one spreadsheet, choose a numbered sheet if it has multiple
+            sheets, then click a column name to insert its placeholder.
+          </p>
+          <label class="field-row" for="active-spreadsheet">
+            Spreadsheet
+            <select id="active-spreadsheet"></select>
+          </label>
+          <label id="sheet-select-container" class="field-row" for="active-sheet" hidden>
+            Sheet number
+            <select id="active-sheet"></select>
+          </label>
+          <div class="field-row">
+            <span>Click a column to insert it at the cursor</span>
+            <div id="template-fields" class="field-chips"></div>
+          </div>
+          <label class="field-row" for="message-template">
+            Message
+            <textarea
+              id="message-template"
+              placeholder="Hello {Name}, your subscription for vehicle {License Plate} has expired."
+            ></textarea>
+          </label>
+          <h3>Preview using the first data row</h3>
+          <p id="template-preview" class="preview" aria-live="polite"></p>
         </div>
       </section>
       <section

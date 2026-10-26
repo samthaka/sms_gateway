@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopGatewayStatus } from '@sms-gateway/shared-contracts';
 import type { SpreadsheetUpload } from './upload-storage';
+import type { SpreadsheetSheet } from './spreadsheet-reader';
 
 interface DesktopPairingQrCode {
   address: string;
@@ -14,6 +15,7 @@ interface DesktopDisplayStatus extends DesktopGatewayStatus {
 interface SpreadsheetUploadSelection {
   uploads: SpreadsheetUpload[];
   uploaded: boolean;
+  selectedUploadId: string | null;
 }
 
 contextBridge.exposeInMainWorld('smsGateway', {
@@ -27,4 +29,6 @@ contextBridge.exposeInMainWorld('smsGateway', {
     ipcRenderer.invoke('uploads:list-spreadsheets'),
   selectSpreadsheet: (): Promise<SpreadsheetUploadSelection> =>
     ipcRenderer.invoke('uploads:select-spreadsheet'),
+  readSpreadsheetSheets: (uploadId: string): Promise<SpreadsheetSheet[]> =>
+    ipcRenderer.invoke('uploads:read-sheets', uploadId),
 });
