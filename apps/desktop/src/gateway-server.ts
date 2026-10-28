@@ -70,6 +70,15 @@ export interface GatewayRuntime {
     requests: EnqueueSmsRequest[],
   ): Promise<number>;
   getSmsQueueStatus(deviceId?: string): SmsQueueStatus;
+  getSmsJobs(deviceId?: string): SmsJob[];
+  retrySmsJob(
+    jobId: string,
+    deviceId?: string,
+  ): Promise<{ status: 'retried'; job: SmsJob } | { status: 'not-found' } | { status: 'not-failed' }>;
+  deleteFailedSmsJob(
+    jobId: string,
+    deviceId?: string,
+  ): Promise<'deleted' | 'not-found' | 'not-failed'>;
   close(): Promise<void>;
 }
 
@@ -411,6 +420,14 @@ export async function startGatewayServer(
       failed: jobs.filter((job) => job.status === 'failed').length,
     };
   };
+  const getSmsJobs = (deviceId?: string): SmsJob[] =>
+    smsJobs
+      .filter(
+        (job) =>
+          (!deviceId || job.deviceId === deviceId) &&
+          (job.status === 'queued' || job.status === 'failed'),
+      )
+      .map(publicSmsJob);
   let pairingCode = '';
   let pairingCodeExpiresAt = 0;
   let pairingInProgress = false;
@@ -461,6 +478,43 @@ export async function startGatewayServer(
     updatedAt: job.updatedAt,
     ...(job.failureReason ? { failureReason: job.failureReason } : {}),
   });
+  const retrySmsJob: GatewayRuntime['retrySmsJob'] = (jobId, deviceId) =>
+    mutateSmsJobs((jobs) => {
+      const job = jobs.find(
+        (candidate) =>
+          candidate.id === jobId &&
+          (!deviceId || candidate.deviceId === deviceId),
+      );
+      if (!job) {
+        return { status: 'not-found' };
+      }
+      if (job.status !== 'failed') {
+        return { status: 'not-failed' };
+      }
+      job.status = 'queued';
+      job.failureReason = undefined;
+      job.updatedAt = new Date().toISOString();
+      return { status: 'retried', job: publicSmsJob(job) };
+    });
+  const deleteFailedSmsJob: GatewayRuntime['deleteFailedSmsJob'] = (
+    jobId,
+    deviceId,
+  ) =>
+    mutateSmsJobs((jobs) => {
+      const index = jobs.findIndex(
+        (candidate) =>
+          candidate.id === jobId &&
+          (!deviceId || candidate.deviceId === deviceId),
+      );
+      if (index === -1) {
+        return 'not-found';
+      }
+      if (jobs[index].status !== 'failed') {
+        return 'not-failed';
+      }
+      jobs.splice(index, 1);
+      return 'deleted';
+    });
 
   const getStatus = (): DesktopGatewayStatus => ({
     status: 'ok',
@@ -589,9 +643,12 @@ export async function startGatewayServer(
 
     if (
       (request.method === 'GET' && request.url === '/v1/jobs/status') ||
+      (request.method === 'GET' && request.url === '/v1/jobs') ||
       (request.method === 'GET' && requestUrl.pathname === '/v1/jobs/next') ||
       (request.method === 'POST' &&
-        /^\/v1\/jobs\/[0-9a-f-]+\/result$/i.test(request.url ?? ''))
+        /^\/v1\/jobs\/[0-9a-f-]+\/(?:result|retry)$/i.test(request.url ?? '')) ||
+      (request.method === 'DELETE' &&
+        /^\/v1\/jobs\/[0-9a-f-]+$/i.test(request.url ?? ''))
     ) {
       const device = getAuthorizedDevice(request);
       if (!device) {
@@ -601,6 +658,45 @@ export async function startGatewayServer(
 
       if (request.method === 'GET' && request.url === '/v1/jobs/status') {
         sendJson(response, 200, getSmsQueueStatus(device.id));
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/jobs') {
+        sendJson(response, 200, { jobs: getSmsJobs(device.id) });
+        return;
+      }
+
+      const retryJobId = request.url?.match(
+        /^\/v1\/jobs\/([0-9a-f-]+)\/retry$/i,
+      )?.[1];
+      if (request.method === 'POST' && retryJobId) {
+        const result = await retrySmsJob(retryJobId, device.id);
+        if (result.status === 'not-found') {
+          sendJson(response, 404, { error: 'SMS job was not found' });
+          return;
+        }
+        if (result.status === 'not-failed') {
+          sendJson(response, 409, { error: 'SMS job is not failed' });
+          return;
+        }
+        sendJson(response, 200, { job: result.job });
+        return;
+      }
+
+      const deleteJobId = request.url?.match(
+        /^\/v1\/jobs\/([0-9a-f-]+)$/i,
+      )?.[1];
+      if (request.method === 'DELETE' && deleteJobId) {
+        const result = await deleteFailedSmsJob(deleteJobId, device.id);
+        if (result === 'not-found') {
+          sendJson(response, 404, { error: 'SMS job was not found' });
+          return;
+        }
+        if (result === 'not-failed') {
+          sendJson(response, 409, { error: 'SMS job is not failed' });
+          return;
+        }
+        sendJson(response, 200, { deleted: true });
         return;
       }
 
@@ -768,6 +864,9 @@ export async function startGatewayServer(
       });
     },
     getSmsQueueStatus,
+    getSmsJobs,
+    retrySmsJob,
+    deleteFailedSmsJob,
     close: () => {
       if (closed) {
         return Promise.resolve();

@@ -58,6 +58,11 @@ When the desktop and mobile apps are running:
 5. Revoke paired devices from the desktop when needed. **Forget on this phone**
    removes local credentials only; it does not revoke desktop access.
 
+The desktop and each paired phone show their pending messages and failed
+attempts. A failed message can be retried, which returns it to the pending
+queue, or permanently deleted. Retrying does not send automatically: the phone
+still requires the user to confirm sending the pending batch.
+
 Messages are submitted one at a time using Android's default SIM. Keep the
 mobile app open during sending. A message marked **submitted to Android** was
 accepted by Android's SMS service; it is not a delivery receipt. Carrier

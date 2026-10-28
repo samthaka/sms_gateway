@@ -45,4 +45,10 @@ contextBridge.exposeInMainWorld('smsGateway', {
     ipcRenderer.invoke('gateway:enqueue-spreadsheet-campaign', input),
   getSmsQueueStatus: (): Promise<import('@sms-gateway/shared-contracts').SmsQueueStatus> =>
     ipcRenderer.invoke('gateway:get-sms-queue-status'),
+  getSmsJobs: (): Promise<import('@sms-gateway/shared-contracts').SmsJob[]> =>
+    ipcRenderer.invoke('gateway:get-sms-jobs'),
+  retrySmsJob: (jobId: string): Promise<import('@sms-gateway/shared-contracts').SmsJob> =>
+    ipcRenderer.invoke('gateway:retry-sms-job', jobId),
+  deleteFailedSmsJob: (jobId: string): Promise<import('@sms-gateway/shared-contracts').DeleteSmsJobResponse> =>
+    ipcRenderer.invoke('gateway:delete-failed-sms-job', jobId),
 });

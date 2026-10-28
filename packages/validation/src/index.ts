@@ -20,6 +20,14 @@ export const nextSmsJobResponseSchema = z.object({
   job: smsJobSchema.nullable(),
 });
 
+export const smsJobsResponseSchema = z.object({
+  jobs: z.array(smsJobSchema),
+});
+
+export const deleteSmsJobResponseSchema = z.object({
+  deleted: z.literal(true),
+});
+
 export const smsQueueStatusSchema = z.object({
   asOf: z.string().datetime(),
   queued: z.number().int().nonnegative(),

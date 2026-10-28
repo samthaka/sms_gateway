@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -16,6 +16,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { createGatewayClient } from '@sms-gateway/api-client';
 import type {
   PairDeviceResponse,
+  SmsJob,
   SmsQueueStatus,
 } from '@sms-gateway/shared-contracts';
 import {
@@ -94,8 +95,11 @@ function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [storedPairing, setStoredPairing] = useState<SavedPairing>();
   const [queueStatus, setQueueStatus] = useState(EMPTY_QUEUE_STATUS);
+  const [pendingJobs, setPendingJobs] = useState<SmsJob[]>([]);
+  const [failedJobs, setFailedJobs] = useState<SmsJob[]>([]);
   const [queueError, setQueueError] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [updatingJobId, setUpdatingJobId] = useState<string>();
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'disconnected',
   });
@@ -240,9 +244,33 @@ function App() {
   const paired =
     connection.status === 'connected' ? connection.pairing : undefined;
 
+  const refreshQueueData = useCallback(async (
+    pairing: SavedPairing,
+    isActive: () => boolean = () => true,
+  ) => {
+    const client = createGatewayClient(
+      pairing.baseUrl,
+      pairing.certificatePin,
+      gatewayTransport,
+    );
+    const status = await client.getSmsQueueStatus(pairing.token);
+    if (isActive()) {
+      setQueueStatus(status);
+    }
+    const jobs = await client.getSmsJobs(pairing.token);
+    if (isActive()) {
+      setPendingJobs(jobs.filter((job) => job.status === 'queued'));
+      setFailedJobs(jobs.filter((job) => job.status === 'failed'));
+      setQueueError('');
+    }
+    return status;
+  }, []);
+
   useEffect(() => {
     if (!paired) {
       setQueueStatus(EMPTY_QUEUE_STATUS);
+      setPendingJobs([]);
+      setFailedJobs([]);
       setQueueError('');
       return;
     }
@@ -253,16 +281,7 @@ function App() {
         return;
       }
       try {
-        const client = createGatewayClient(
-          paired.baseUrl,
-          paired.certificatePin,
-          gatewayTransport,
-        );
-        const status = await client.getSmsQueueStatus(paired.token);
-        if (active) {
-          setQueueStatus(status);
-          setQueueError('');
-        }
+        await refreshQueueData(paired, () => active);
       } catch (error) {
         if (active) {
           setQueueError(
@@ -288,7 +307,53 @@ function App() {
       clearInterval(interval);
       appStateSubscription.remove();
     };
-  }, [paired]);
+  }, [paired, refreshQueueData]);
+
+  async function retryFailedJob(jobId: string) {
+    if (!paired || updatingJobId) {
+      return;
+    }
+    setUpdatingJobId(jobId);
+    setQueueError('');
+    try {
+      const client = createGatewayClient(
+        paired.baseUrl,
+        paired.certificatePin,
+        gatewayTransport,
+      );
+      await client.retrySmsJob(paired.token, jobId);
+      await refreshQueueData(paired);
+    } catch (error) {
+      setQueueError(
+        error instanceof Error ? error.message : 'Could not retry this message.',
+      );
+    } finally {
+      setUpdatingJobId(undefined);
+    }
+  }
+
+  async function deleteFailedJob(jobId: string) {
+    if (!paired || updatingJobId) {
+      return;
+    }
+    setUpdatingJobId(jobId);
+    setQueueError('');
+    try {
+      const client = createGatewayClient(
+        paired.baseUrl,
+        paired.certificatePin,
+        gatewayTransport,
+      );
+      await client.deleteFailedSmsJob(paired.token, jobId);
+      await refreshQueueData(paired);
+    } catch (error) {
+      setQueueError(
+        error instanceof Error ? error.message : 'Could not delete this message.',
+      );
+    } finally {
+      setUpdatingJobId(undefined);
+    }
+  }
 
   async function sendQueuedMessages(
     pairing: SavedPairing,
@@ -321,9 +386,9 @@ function App() {
           };
         }
         await client.completeSmsJob(pairing.token, job.id, result);
-        setQueueStatus(await client.getSmsQueueStatus(pairing.token));
+        await refreshQueueData(pairing);
       }
-      setQueueStatus(await client.getSmsQueueStatus(pairing.token));
+      await refreshQueueData(pairing);
     } catch (error) {
       setQueueError(
         error instanceof Error
@@ -523,6 +588,84 @@ function App() {
                     </Text>
                   )}
                 </Pressable>
+                <View style={styles.jobSection}>
+                  <Text style={styles.sectionTitle}>Pending messages</Text>
+                  {pendingJobs.length === 0 ? (
+                    <Text style={styles.hint}>No messages are waiting.</Text>
+                  ) : (
+                    pendingJobs.map((job) => (
+                      <View key={job.id} style={styles.jobRow}>
+                        <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
+                        <Text style={styles.jobMessage}>{job.message}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+                <View style={styles.jobSection}>
+                  <Text style={styles.sectionTitle}>Failed attempts</Text>
+                  {failedJobs.length === 0 ? (
+                    <Text style={styles.hint}>No failed attempts.</Text>
+                  ) : (
+                    failedJobs.map((job) => (
+                      <View key={job.id} style={styles.jobRow}>
+                        <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
+                        <Text style={styles.jobMessage}>{job.message}</Text>
+                        <Text style={styles.jobFailure}>
+                          {job.failureReason ?? 'The message could not be submitted.'}
+                        </Text>
+                        <View style={styles.jobActions}>
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={updatingJobId !== undefined}
+                            onPress={() => retryFailedJob(job.id)}
+                            testID={`retry-failed-job-${job.id}`}
+                            style={({ pressed }) => [
+                              styles.jobButton,
+                              styles.retryJobButton,
+                              pressed && styles.buttonPressed,
+                              updatingJobId !== undefined && styles.buttonDisabled,
+                            ]}
+                          >
+                            <Text style={styles.retryJobText}>Retry</Text>
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={updatingJobId !== undefined}
+                            onPress={() =>
+                              Alert.alert(
+                                'Delete failed message?',
+                                `Permanently delete the failed message to ${job.phoneNumber}?`,
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: () => deleteFailedJob(job.id),
+                                  },
+                                ],
+                              )
+                            }
+                            testID={`delete-failed-job-${job.id}`}
+                            style={({ pressed }) => [
+                              styles.jobButton,
+                              styles.deleteJobButton,
+                              pressed && styles.buttonPressed,
+                              updatingJobId !== undefined && styles.buttonDisabled,
+                            ]}
+                          >
+                            <Text style={styles.deleteJobText}>Delete</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                  {failedJobs.length > 0 && (
+                    <Text style={styles.hint}>
+                      Retry returns the message to pending. Tap Send queued
+                      messages when you are ready to try again.
+                    </Text>
+                  )}
+                </View>
                 <Text style={styles.hint}>
                   Keep this app open while sending. Messages are sent one at a
                   time via the phone’s default SIM; sent means accepted by
@@ -628,6 +771,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginTop: 6,
+  },
+  sectionTitle: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  jobSection: {
+    borderTopColor: '#e2e8f0',
+    borderTopWidth: 1,
+    marginTop: 18,
+    paddingTop: 16,
+  },
+  jobRow: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    marginTop: 8,
+    padding: 12,
+  },
+  jobRecipient: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  jobMessage: {
+    color: '#334155',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  jobFailure: {
+    color: '#b91c1c',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  jobActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  jobButton: {
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 84,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  retryJobButton: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#bfdbfe',
+  },
+  retryJobText: {
+    color: '#1d4ed8',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  deleteJobButton: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+  },
+  deleteJobText: {
+    color: '#b91c1c',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   card: {
     backgroundColor: '#fff',

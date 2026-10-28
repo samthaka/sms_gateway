@@ -11,7 +11,7 @@ interface GatewaySecurityNativeModule {
   requestPinned(
     url: string,
     pin: string,
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     body: string | null,
     token: string | null,
   ): Promise<GatewayHttpResponse>;

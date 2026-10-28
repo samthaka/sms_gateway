@@ -29,6 +29,14 @@ export interface SmsQueueStatus {
   failed: number;
 }
 
+export interface SmsJobsResponse {
+  jobs: SmsJob[];
+}
+
+export interface DeleteSmsJobResponse {
+  deleted: true;
+}
+
 export interface CompleteSmsJobRequest {
   status: 'sent' | 'failed';
   failureReason?: string;

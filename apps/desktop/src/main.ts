@@ -103,6 +103,53 @@ ipcMain.handle('gateway:get-sms-queue-status', () => {
   return gateway.getSmsQueueStatus();
 });
 
+ipcMain.handle('gateway:get-sms-jobs', () => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  return gateway.getSmsJobs();
+});
+
+ipcMain.handle('gateway:retry-sms-job', async (_event, jobId: unknown) => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  if (
+    typeof jobId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)
+  ) {
+    throw new TypeError('SMS job ID is invalid');
+  }
+  const result = await gateway.retrySmsJob(jobId);
+  if (result.status === 'not-found') {
+    throw new Error('SMS job was not found');
+  }
+  if (result.status === 'not-failed') {
+    throw new Error('SMS job is not failed');
+  }
+  return result.job;
+});
+
+ipcMain.handle('gateway:delete-failed-sms-job', async (_event, jobId: unknown) => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  if (
+    typeof jobId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)
+  ) {
+    throw new TypeError('SMS job ID is invalid');
+  }
+  const result = await gateway.deleteFailedSmsJob(jobId);
+  if (result === 'not-found') {
+    throw new Error('SMS job was not found');
+  }
+  if (result === 'not-failed') {
+    throw new Error('Only failed SMS jobs can be deleted');
+  }
+  return { deleted: true };
+});
+
 ipcMain.handle('gateway:enqueue-spreadsheet-campaign', async (_event, input: unknown) => {
   if (!gateway) {
     throw new Error('Gateway service is not running');

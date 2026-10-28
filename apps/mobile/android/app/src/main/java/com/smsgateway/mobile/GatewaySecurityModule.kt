@@ -152,7 +152,9 @@ class GatewaySecurityModule(
       require(pin.matches(Regex("^sha256/[A-Za-z0-9+/]{43}=$"))) {
         "Certificate pin is invalid"
       }
-      require(method == "GET" || method == "POST") { "Unsupported gateway method" }
+      require(method == "GET" || method == "POST" || method == "DELETE") {
+        "Unsupported gateway method"
+      }
 
       val expectedPin = Base64.decode(pin.substringAfter('/'), Base64.NO_WRAP)
       // The self-signed gateway is trusted only when its key matches the user-approved pin.
@@ -212,6 +214,7 @@ class GatewaySecurityModule(
           require(!jsonBody.isNullOrBlank()) { "POST requests require a JSON body" }
           requestBuilder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
         }
+        "DELETE" -> requestBuilder.delete()
       }
 
       client.newCall(requestBuilder.build()).enqueue(

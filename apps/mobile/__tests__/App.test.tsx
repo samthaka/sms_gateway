@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { Text } from 'react-native';
+import { AppState, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { createGatewayClient } from '@sms-gateway/api-client';
 import {
@@ -76,6 +76,7 @@ jest.mock('react-native-safe-area-context', () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  AppState.currentState = 'active';
 });
 
 const renderedApps: ReactTestRenderer.ReactTestRenderer[] = [];
@@ -112,8 +113,11 @@ function createClientMock(overrides: Record<string, unknown> = {}) {
       sent: 0,
       failed: 0,
     }),
+    getSmsJobs: jest.fn().mockResolvedValue([]),
     getNextSmsJob: jest.fn().mockResolvedValue(null),
     completeSmsJob: jest.fn(),
+    retrySmsJob: jest.fn(),
+    deleteFailedSmsJob: jest.fn(),
     ...overrides,
   };
 }
@@ -186,6 +190,76 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
   expect(
     renderer.root.findByProps({ testID: 'send-queued-messages-button' })
       .props.disabled,
+  ).toBe(true);
+});
+
+test('shows pending and failed jobs and lets the user retry a failed message', async () => {
+  const failedJob = {
+    id: 'a5f07fd8-89cf-4e62-a4d3-68e9ed229e92',
+    phoneNumber: '+254700000001',
+    message: 'Hello',
+    status: 'failed' as const,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    failureReason: 'SIM unavailable',
+  };
+  const pendingJob = {
+    ...failedJob,
+    id: 'b6f07fd8-89cf-4e62-a4d3-68e9ed229e93',
+    phoneNumber: '+254700000002',
+    status: 'queued' as const,
+    failureReason: undefined,
+  };
+  const retrySmsJob = jest.fn().mockResolvedValue({
+    ...failedJob,
+    status: 'queued',
+    failureReason: undefined,
+  });
+  const getSmsJobs = jest.fn()
+    .mockResolvedValueOnce([pendingJob, failedJob])
+    .mockResolvedValue([pendingJob, { ...failedJob, status: 'queued' }]);
+  jest.mocked(createGatewayClient).mockReturnValue(
+    createClientMock({
+      getSmsJobs,
+      retrySmsJob,
+      pairDevice: jest.fn().mockResolvedValue({
+        deviceId: 'device-test-id',
+        deviceName: 'Test Android',
+        serverId: SERVER_ID,
+        token: 'opaque-test-token',
+      }),
+    }),
+  );
+
+  const renderer = renderApp();
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ testID: 'scan-pairing-qr-button' })
+      .props.onPress();
+  });
+  const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
+  await ReactTestRenderer.act(async () => {
+    camera.props.codeScanner.onCodeScanned([
+      { value: JSON.stringify(PAIRING_QR) },
+    ]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  });
+
+  expect(
+    renderer.root.findAllByType(Text).some((text) => text.props.children === 'Hello'),
+  ).toBe(true);
+  expect(
+    renderer.root.findAllByType(Text).some((text) => text.props.children === 'SIM unavailable'),
+  ).toBe(true);
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ testID: `retry-failed-job-${failedJob.id}` })
+      .props.onPress();
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  });
+  expect(retrySmsJob).toHaveBeenCalledWith('opaque-test-token', failedJob.id);
+  expect(
+    renderer.root.findAllByType(Text).some((text) => text.props.children === 'No failed attempts.'),
   ).toBe(true);
 });
 

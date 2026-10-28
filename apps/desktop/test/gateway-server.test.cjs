@@ -231,11 +231,107 @@ test('queues jobs for the paired phone, records SMS results, and does not resend
   );
 });
 
+test('lists pending and failed jobs and supports retrying or deleting failed jobs', async (t) => {
+  const { gateway } = await makeServer(t);
+  const client = createClient(gateway);
+  const paired = await client.pairDevice({
+    code: gateway.getStatus().pairingCode,
+    deviceName: 'Test Android',
+  });
+  await gateway.enqueueSmsBatch(paired.deviceId, [
+    {
+      phoneNumber: '+254700000001',
+      message: 'Hello again',
+      idempotencyKey: 'row-1',
+    },
+  ]);
+  const [pendingJob] = await client.getSmsJobs(paired.token);
+  assert.equal(pendingJob.status, 'queued');
+  await assert.rejects(
+    client.retrySmsJob(paired.token, pendingJob.id),
+    /status 409/,
+  );
+  const jobId = pendingJob.id;
+  const sendingJob = await client.getNextSmsJob(paired.token);
+  assert.equal(sendingJob.id, pendingJob.id);
+  await client.completeSmsJob(paired.token, sendingJob.id, {
+    status: 'failed',
+    failureReason: 'SIM unavailable',
+  });
+
+  const [failedJob] = await client.getSmsJobs(paired.token);
+  assert.equal(failedJob.id, jobId);
+  assert.equal(failedJob.status, 'failed');
+  assert.equal(failedJob.failureReason, 'SIM unavailable');
+
+  const retriedJob = await client.retrySmsJob(paired.token, failedJob.id);
+  assert.equal(retriedJob.status, 'queued');
+  assert.equal(retriedJob.failureReason, undefined);
+  assert.equal((await client.getSmsJobs(paired.token))[0].status, 'queued');
+  await assert.rejects(
+    client.deleteFailedSmsJob(paired.token, failedJob.id),
+    /status 409/,
+  );
+
+  const secondAttempt = await client.getNextSmsJob(paired.token);
+  await client.completeSmsJob(paired.token, secondAttempt.id, {
+    status: 'failed',
+    failureReason: 'Still unavailable',
+  });
+  assert.deepEqual(
+    await client.deleteFailedSmsJob(paired.token, failedJob.id),
+    { deleted: true },
+  );
+  assert.deepEqual(await client.getSmsJobs(paired.token), []);
+});
+
+test('queue job listing and failed-job actions are scoped to the paired device', async (t) => {
+  const { gateway } = await makeServer(t);
+  const client = createClient(gateway);
+  const firstDevice = await client.pairDevice({
+    code: gateway.getStatus().pairingCode,
+    deviceName: 'First phone',
+  });
+  gateway.rotatePairingCode();
+  const secondDevice = await client.pairDevice({
+    code: gateway.getStatus().pairingCode,
+    deviceName: 'Second phone',
+  });
+  await gateway.enqueueSmsBatch(firstDevice.deviceId, [
+    {
+      phoneNumber: '+254700000001',
+      message: 'Private to first phone',
+      idempotencyKey: 'row-1',
+    },
+  ]);
+  const [firstDeviceJob] = await client.getSmsJobs(firstDevice.token);
+  const jobId = firstDeviceJob.id;
+  const sendingJob = await client.getNextSmsJob(firstDevice.token);
+  await client.completeSmsJob(firstDevice.token, sendingJob.id, {
+    status: 'failed',
+  });
+
+  assert.deepEqual(await client.getSmsJobs(secondDevice.token), []);
+  await assert.rejects(
+    client.retrySmsJob(secondDevice.token, jobId),
+    /status 404/,
+  );
+  await assert.rejects(
+    client.deleteFailedSmsJob(secondDevice.token, jobId),
+    /status 404/,
+  );
+  assert.equal((await client.getSmsJobs(firstDevice.token))[0].id, jobId);
+});
+
 test('rejects SMS queue access without a valid paired-device token', async (t) => {
   const { gateway } = await makeServer(t);
   const client = createClient(gateway);
   await assert.rejects(
     client.getSmsQueueStatus('not-a-valid-token'),
+    /status 401/,
+  );
+  await assert.rejects(
+    client.getSmsJobs('not-a-valid-token'),
     /status 401/,
   );
 });
@@ -269,7 +365,7 @@ test('does not expose unrecognized gateway routes', async (t) => {
   const { gateway } = await makeServer(t);
   const transport = httpsTransport(gateway.getCertificate());
   const response = await transport.request(
-    `https://127.0.0.1:${gateway.getStatus().port}/v1/jobs`,
+    `https://127.0.0.1:${gateway.getStatus().port}/v1/jobs/invalid`,
     gateway.getStatus().certificatePin,
     'GET',
   );

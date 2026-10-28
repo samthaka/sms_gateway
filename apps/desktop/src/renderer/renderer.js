@@ -18,6 +18,9 @@ const sendDeviceSelect = document.getElementById('send-device');
 const queueCampaignButton = document.getElementById('queue-campaign');
 const campaignMessageElement = document.getElementById('campaign-message');
 const queueStatusElement = document.getElementById('queue-status');
+const pendingJobsElement = document.getElementById('pending-jobs');
+const failedJobsElement = document.getElementById('failed-jobs');
+const refreshQueueButton = document.getElementById('refresh-queue');
 const uploadsPageElement = document.getElementById('uploads-page');
 const connectionPageElement = document.getElementById('connection-page');
 const openConnectionButton = document.getElementById('open-connection');
@@ -227,6 +230,7 @@ queueCampaignButton.addEventListener('click', async () => {
       `Queued ${result.enqueued} message${result.enqueued === 1 ? '' : 's'}. ` +
       'Keep the selected phone app open; it will ask before sending.';
     renderQueueStatus(result.queueStatus);
+    void refreshQueueStatus();
   } catch (error) {
     campaignMessageElement.textContent =
       `Could not queue messages: ${error.message}`;
@@ -241,14 +245,115 @@ function renderQueueStatus(status) {
     `${status.sent} submitted to Android, ${status.failed} failed.`;
 }
 
+function renderSmsJobs(jobs) {
+  const pending = jobs.filter((job) => job.status === 'queued');
+  const failed = jobs.filter((job) => job.status === 'failed');
+  pendingJobsElement.replaceChildren();
+  failedJobsElement.replaceChildren();
+
+  if (pending.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = 'No messages are waiting.';
+    pendingJobsElement.append(empty);
+  }
+  for (const job of pending) {
+    const item = document.createElement('li');
+    item.className = 'job-row';
+    const details = document.createElement('span');
+    details.className = 'job-details';
+    const recipient = document.createElement('strong');
+    recipient.textContent = job.phoneNumber;
+    const message = document.createElement('span');
+    message.textContent = job.message;
+    const created = document.createElement('span');
+    created.className = 'muted';
+    created.textContent = `Queued ${new Date(job.createdAt).toLocaleString()}`;
+    details.append(recipient, message, created);
+    item.append(details);
+    pendingJobsElement.append(item);
+  }
+
+  if (failed.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = 'No failed attempts.';
+    failedJobsElement.append(empty);
+  }
+  for (const job of failed) {
+    const item = document.createElement('li');
+    item.className = 'job-row';
+    const details = document.createElement('span');
+    details.className = 'job-details';
+    const recipient = document.createElement('strong');
+    recipient.textContent = job.phoneNumber;
+    const message = document.createElement('span');
+    message.textContent = job.message;
+    const reason = document.createElement('span');
+    reason.className = 'muted';
+    reason.textContent = job.failureReason ?? 'The message could not be submitted.';
+    const updated = document.createElement('span');
+    updated.className = 'muted';
+    updated.textContent = `Failed ${new Date(job.updatedAt).toLocaleString()}`;
+    details.append(recipient, message, reason, updated);
+
+    const actions = document.createElement('span');
+    actions.className = 'job-actions';
+    const retry = document.createElement('button');
+    retry.className = 'retry-job-button';
+    retry.type = 'button';
+    retry.textContent = 'Retry';
+    retry.setAttribute('aria-label', `Retry message to ${job.phoneNumber}`);
+    retry.addEventListener('click', async () => {
+      retry.disabled = true;
+      try {
+        await window.smsGateway.retrySmsJob(job.id);
+        await refreshQueueStatus();
+      } catch (error) {
+        window.alert(`Could not retry message: ${error.message}`);
+        retry.disabled = false;
+      }
+    });
+    const remove = document.createElement('button');
+    remove.className = 'delete-job-button';
+    remove.type = 'button';
+    remove.textContent = 'Delete';
+    remove.setAttribute('aria-label', `Delete failed message to ${job.phoneNumber}`);
+    remove.addEventListener('click', async () => {
+      if (!window.confirm(`Permanently delete the failed message to ${job.phoneNumber}?`)) {
+        return;
+      }
+      remove.disabled = true;
+      try {
+        await window.smsGateway.deleteFailedSmsJob(job.id);
+        await refreshQueueStatus();
+      } catch (error) {
+        window.alert(`Could not delete failed message: ${error.message}`);
+        remove.disabled = false;
+      }
+    });
+    actions.append(retry, remove);
+    item.append(details, actions);
+    failedJobsElement.append(item);
+  }
+}
+
 function refreshQueueStatus() {
-  window.smsGateway.getSmsQueueStatus()
-    .then(renderQueueStatus)
+  return window.smsGateway.getSmsQueueStatus()
+    .then((status) => {
+      renderQueueStatus(status);
+      return window.smsGateway.getSmsJobs();
+    })
+    .then((jobs) => {
+      renderSmsJobs(jobs);
+    })
     .catch((error) => {
       queueStatusElement.textContent =
-        `Queue status unavailable: ${error.message}`;
+        `Queue data unavailable: ${error.message}`;
     });
 }
+
+refreshQueueButton.addEventListener('click', refreshQueueStatus);
 
 openConnectionButton.addEventListener('click', () => {
   uploadsPageElement.hidden = true;

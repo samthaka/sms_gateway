@@ -40,6 +40,11 @@ declare global {
         deviceId: string;
       }): Promise<{ enqueued: number; queueStatus: SmsQueueStatus }>;
       getSmsQueueStatus(): Promise<SmsQueueStatus>;
+      getSmsJobs(): Promise<import('@sms-gateway/shared-contracts').SmsJob[]>;
+      retrySmsJob(jobId: string): Promise<import('@sms-gateway/shared-contracts').SmsJob>;
+      deleteFailedSmsJob(
+        jobId: string,
+      ): Promise<import('@sms-gateway/shared-contracts').DeleteSmsJobResponse>;
     };
   }
 }
