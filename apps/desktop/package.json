@@ -10,6 +10,7 @@
     "start": "npm run build && electron ."
   },
   "dependencies": {
+    "@e965/xlsx": "^0.20.3",
     "@sms-gateway/shared-contracts": "^0.1.0",
     "@sms-gateway/validation": "^0.1.0",
     "qrcode": "^1.5.4",

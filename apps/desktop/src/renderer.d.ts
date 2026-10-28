@@ -1,5 +1,6 @@
 import type { DesktopGatewayStatus } from '@sms-gateway/shared-contracts';
 import type { SpreadsheetUpload } from './upload-storage';
+import type { SpreadsheetSheet } from './spreadsheet-reader';
 
 interface DesktopPairingQrCode {
   address: string;
@@ -13,6 +14,7 @@ interface DesktopDisplayStatus extends DesktopGatewayStatus {
 interface SpreadsheetUploadSelection {
   uploads: SpreadsheetUpload[];
   uploaded: boolean;
+  selectedUploadId: string | null;
 }
 
 declare global {
@@ -22,7 +24,9 @@ declare global {
       rotatePairingCode(): Promise<DesktopDisplayStatus>;
       revokeDevice(deviceId: string): Promise<DesktopDisplayStatus>;
       listSpreadsheetUploads(): Promise<SpreadsheetUpload[]>;
+      deleteSpreadsheetUpload(uploadId: string): Promise<SpreadsheetUpload[]>;
       selectSpreadsheet(): Promise<SpreadsheetUploadSelection>;
+      readSpreadsheetSheets(uploadId: string): Promise<SpreadsheetSheet[]>;
     };
   }
 }

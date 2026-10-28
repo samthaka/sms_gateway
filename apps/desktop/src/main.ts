@@ -2,7 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import QRCode from 'qrcode';
 import path from 'node:path';
 import { startGatewayServer, type GatewayRuntime } from './gateway-server';
-import { listSpreadsheetUploads, storeSpreadsheetUpload } from './upload-storage';
+import {
+  deleteSpreadsheetUpload,
+  listSpreadsheetUploads,
+  storeSpreadsheetUpload,
+} from './upload-storage';
+import { readSpreadsheetSheets } from './spreadsheet-reader';
 import type { DesktopGatewayStatus, PairingQrPayload } from '@sms-gateway/shared-contracts';
 
 let gateway: GatewayRuntime | undefined;
@@ -94,6 +99,15 @@ ipcMain.handle('uploads:list-spreadsheets', () =>
   listSpreadsheetUploads(path.join(app.getPath('userData'), 'uploads')),
 );
 
+ipcMain.handle('uploads:delete-spreadsheet', async (_event, uploadId: unknown) => {
+  if (typeof uploadId !== 'string') {
+    throw new TypeError('Spreadsheet ID must be a string');
+  }
+  const uploadDir = path.join(app.getPath('userData'), 'uploads');
+  await deleteSpreadsheetUpload(uploadDir, uploadId);
+  return listSpreadsheetUploads(uploadDir);
+});
+
 ipcMain.handle('uploads:select-spreadsheet', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile'],
@@ -102,18 +116,29 @@ ipcMain.handle('uploads:select-spreadsheet', async () => {
     ],
   });
   const uploaded = !result.canceled && result.filePaths.length > 0;
-  if (uploaded) {
-    await storeSpreadsheetUpload(
+  const savedUpload = uploaded
+    ? await storeSpreadsheetUpload(
       path.join(app.getPath('userData'), 'uploads'),
       result.filePaths[0],
-    );
-  }
+    )
+    : undefined;
   return {
     uploads: await listSpreadsheetUploads(
       path.join(app.getPath('userData'), 'uploads'),
     ),
     uploaded,
+    selectedUploadId: savedUpload?.id ?? null,
   };
+});
+
+ipcMain.handle('uploads:read-sheets', async (_event, uploadId: unknown) => {
+  if (typeof uploadId !== 'string') {
+    throw new TypeError('Spreadsheet ID must be a string');
+  }
+  return readSpreadsheetSheets(
+    path.join(app.getPath('userData'), 'uploads'),
+    uploadId,
+  );
 });
 
 app.whenReady()

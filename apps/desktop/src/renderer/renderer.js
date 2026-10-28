@@ -7,10 +7,150 @@ const devicesElement = document.getElementById('paired-devices');
 const uploadButton = document.getElementById('upload-spreadsheet');
 const uploadMessageElement = document.getElementById('upload-message');
 const uploadsElement = document.getElementById('spreadsheet-uploads');
+const spreadsheetSelect = document.getElementById('active-spreadsheet');
+const sheetSelect = document.getElementById('active-sheet');
+const sheetSelectContainer = document.getElementById('sheet-select-container');
+const templateEditor = document.getElementById('message-template');
+const templateFieldsElement = document.getElementById('template-fields');
+const templatePreviewElement = document.getElementById('template-preview');
 const uploadsPageElement = document.getElementById('uploads-page');
 const connectionPageElement = document.getElementById('connection-page');
 const openConnectionButton = document.getElementById('open-connection');
 const backToUploadsButton = document.getElementById('back-to-uploads');
+let activeSheets = [];
+const templateStorageKey = 'sms-gateway-message-template';
+templateEditor.value = window.localStorage.getItem(templateStorageKey) ?? '';
+
+function renderTemplatePreview() {
+  const sheet = activeSheets.find(
+    (candidate) => candidate.number === Number(sheetSelect.value),
+  );
+  if (!sheet || sheet.sample.length === 0 || !templateEditor.value) {
+    templatePreviewElement.textContent = !spreadsheetSelect.value
+      ? 'Select a spreadsheet to preview the message.'
+      : activeSheets.length > 1 && !sheet
+        ? 'Choose a sheet number to preview the message.'
+        : !templateEditor.value
+          ? 'Enter a message to preview it.'
+          : 'No sample data row is available for this sheet.';
+    return;
+  }
+
+  let preview = templateEditor.value;
+  for (const { header, value } of sheet.sample) {
+    preview = preview.split(`{${header}}`).join(value);
+  }
+  templatePreviewElement.textContent = preview;
+}
+
+function renderTemplateFields(sheet) {
+  templateFieldsElement.replaceChildren();
+  if (!sheet || sheet.headers.length === 0) {
+    const message = document.createElement('p');
+    message.className = 'muted';
+    message.textContent = !spreadsheetSelect.value
+      ? 'Select a spreadsheet to load its headers.'
+      : activeSheets.length > 1 && !sheet
+        ? 'Choose a sheet number to load its headers.'
+        : 'No column headers were found on this sheet.';
+    templateFieldsElement.append(message);
+    renderTemplatePreview();
+    return;
+  }
+
+  for (const header of sheet.headers) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'field-chip';
+    button.textContent = header;
+    button.title = `Insert {${header}}`;
+    button.addEventListener('click', () => {
+      const start = templateEditor.selectionStart;
+      const end = templateEditor.selectionEnd;
+      const placeholder = `{${header}}`;
+      templateEditor.setRangeText(placeholder, start, end, 'end');
+      templateEditor.dispatchEvent(new Event('input', { bubbles: true }));
+      templateEditor.focus();
+    });
+    templateFieldsElement.append(button);
+  }
+  renderTemplatePreview();
+}
+
+async function loadSpreadsheet(uploadId) {
+  activeSheets = [];
+  sheetSelect.replaceChildren();
+  templateFieldsElement.replaceChildren();
+  if (!uploadId) {
+    sheetSelectContainer.hidden = true;
+    renderTemplateFields(undefined);
+    return;
+  }
+
+  try {
+    const sheets = await window.smsGateway.readSpreadsheetSheets(uploadId);
+    if (spreadsheetSelect.value !== uploadId) {
+      return;
+    }
+    activeSheets = sheets;
+    sheetSelectContainer.hidden = activeSheets.length < 2;
+    if (activeSheets.length > 1) {
+      const promptOption = document.createElement('option');
+      promptOption.value = '';
+      promptOption.textContent = 'Choose a sheet number';
+      sheetSelect.append(promptOption);
+    }
+    for (const sheet of activeSheets) {
+      const option = document.createElement('option');
+      option.value = String(sheet.number);
+      option.textContent = `${sheet.number}. ${sheet.name}`;
+      sheetSelect.append(option);
+    }
+    const selectedSheet = activeSheets.length === 1 ? activeSheets[0] : undefined;
+    sheetSelect.value = selectedSheet ? String(selectedSheet.number) : '';
+    renderTemplateFields(selectedSheet);
+  } catch (error) {
+    if (spreadsheetSelect.value === uploadId) {
+      templateFieldsElement.textContent =
+        `Could not read spreadsheet headers: ${error.message}`;
+    }
+  }
+}
+
+async function renderActiveSpreadsheetOptions(uploads, selectedUploadId) {
+  spreadsheetSelect.replaceChildren();
+  const emptyOption = document.createElement('option');
+  emptyOption.value = '';
+  emptyOption.textContent = 'Choose a spreadsheet';
+  spreadsheetSelect.append(emptyOption);
+  for (const upload of uploads) {
+    const option = document.createElement('option');
+    option.value = upload.id;
+    option.textContent = upload.name;
+    spreadsheetSelect.append(option);
+  }
+  const selectedId = uploads.some((upload) => upload.id === selectedUploadId)
+    ? selectedUploadId
+    : uploads[0]?.id ?? '';
+  spreadsheetSelect.value = selectedId;
+  await loadSpreadsheet(selectedId);
+}
+
+spreadsheetSelect.addEventListener('change', () => {
+  void loadSpreadsheet(spreadsheetSelect.value);
+});
+
+sheetSelect.addEventListener('change', () => {
+  const sheet = activeSheets.find(
+    (candidate) => candidate.number === Number(sheetSelect.value),
+  );
+  renderTemplateFields(sheet);
+});
+
+templateEditor.addEventListener('input', () => {
+  window.localStorage.setItem(templateStorageKey, templateEditor.value);
+  renderTemplatePreview();
+});
 
 openConnectionButton.addEventListener('click', () => {
   uploadsPageElement.hidden = true;
@@ -36,12 +176,42 @@ function renderUploads(uploads) {
 
   for (const upload of uploads) {
     const item = document.createElement('li');
+    const details = document.createElement('span');
+    details.className = 'upload-details';
     const name = document.createElement('span');
     name.textContent = upload.name;
     const size = document.createElement('span');
     size.className = 'muted';
     size.textContent = `${(upload.size / 1024).toFixed(1)} KB`;
-    item.append(name, size);
+    details.append(name, size);
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'delete-upload-button';
+    deleteButton.type = 'button';
+    deleteButton.textContent = 'Delete';
+    deleteButton.setAttribute('aria-label', `Delete ${upload.name}`);
+    deleteButton.addEventListener('click', async () => {
+      if (!window.confirm(`Permanently delete ${upload.name} from this computer?`)) {
+        return;
+      }
+      deleteButton.disabled = true;
+      uploadMessageElement.textContent = '';
+      try {
+        const remainingUploads =
+          await window.smsGateway.deleteSpreadsheetUpload(upload.id);
+        renderUploads(remainingUploads);
+        await renderActiveSpreadsheetOptions(
+          remainingUploads,
+          spreadsheetSelect.value,
+        );
+        uploadMessageElement.textContent =
+          `Permanently deleted ${upload.name} from this computer.`;
+      } catch (error) {
+        uploadMessageElement.textContent =
+          `Could not delete ${upload.name}: ${error.message}`;
+        deleteButton.disabled = false;
+      }
+    });
+    item.append(details, deleteButton);
     uploadsElement.append(item);
   }
 }
@@ -52,9 +222,16 @@ uploadButton.addEventListener('click', async () => {
   try {
     const selection = await window.smsGateway.selectSpreadsheet();
     renderUploads(selection.uploads);
+    await renderActiveSpreadsheetOptions(
+      selection.uploads,
+      selection.selectedUploadId ?? spreadsheetSelect.value,
+    );
     if (selection.uploaded) {
-      uploadMessageElement.textContent =
-        'Spreadsheet saved on this computer.';
+      uploadMessageElement.textContent = 'Spreadsheet saved on this computer.';
+      if (activeSheets.length > 1) {
+        uploadMessageElement.textContent =
+          'Spreadsheet saved. Choose the sheet number to load its headers.';
+      }
     }
   } catch (error) {
     uploadMessageElement.textContent =
@@ -65,7 +242,10 @@ uploadButton.addEventListener('click', async () => {
 });
 
 window.smsGateway.listSpreadsheetUploads()
-  .then(renderUploads)
+  .then((uploads) => {
+    renderUploads(uploads);
+    void renderActiveSpreadsheetOptions(uploads);
+  })
   .catch((error) => {
     uploadMessageElement.textContent =
       `Could not load saved spreadsheets: ${error.message}`;
