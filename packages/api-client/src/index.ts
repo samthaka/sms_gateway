@@ -1,14 +1,28 @@
 import type {
+  CompleteSmsJobRequest,
   GatewayHealth,
   PairDeviceRequest,
   PairDeviceResponse,
   PairedDeviceInfo,
+  SmsJob,
+  SmsDeliveryReportRequest,
+  SmsJobsResponse,
+  SmsQueueStatus,
+  DeleteSmsJobResponse,
 } from '@sms-gateway/shared-contracts';
 import {
+  completeSmsJobRequestSchema,
+  completeSmsJobResponseSchema,
+  deleteSmsJobResponseSchema,
   gatewayHealthSchema,
+  nextSmsJobResponseSchema,
   pairDeviceRequestSchema,
   pairDeviceResponseSchema,
   pairedDeviceInfoSchema,
+  smsJobSchema,
+  smsJobsResponseSchema,
+  smsDeliveryReportRequestSchema,
+  smsQueueStatusSchema,
 } from '@sms-gateway/validation';
 
 export interface GatewayHttpResponse {
@@ -20,7 +34,7 @@ export interface GatewayTransport {
   request(
     url: string,
     certificatePin: string,
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     body?: string,
     token?: string,
   ): Promise<GatewayHttpResponse>;
@@ -30,6 +44,24 @@ export interface GatewayClient {
   getHealth(): Promise<GatewayHealth>;
   pairDevice(request: PairDeviceRequest): Promise<PairDeviceResponse>;
   getPairedDevice(token: string): Promise<PairedDeviceInfo>;
+  getSmsQueueStatus(token: string): Promise<SmsQueueStatus>;
+  getSmsJobs(token: string): Promise<SmsJob[]>;
+  getNextSmsJob(
+    token: string,
+    createdBefore?: string,
+  ): Promise<SmsJob | null>;
+  completeSmsJob(
+    token: string,
+    jobId: string,
+    result: CompleteSmsJobRequest,
+  ): Promise<SmsJob>;
+  retrySmsJob(token: string, jobId: string): Promise<SmsJob>;
+  deleteFailedSmsJob(token: string, jobId: string): Promise<DeleteSmsJobResponse>;
+  updateSmsDeliveryReport(
+    token: string,
+    jobId: string,
+    report: SmsDeliveryReportRequest,
+  ): Promise<SmsJob>;
 }
 
 function parseResponse<T>(
@@ -89,7 +121,7 @@ export function createGatewayClient(
   }
 
   const request = async <T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     route: string,
     expectedStatus: number,
     schema: { safeParse(value: unknown): { success: boolean; data?: T } },
@@ -131,5 +163,103 @@ export function createGatewayClient(
         undefined,
         token,
       ),
+    getSmsQueueStatus: (token) =>
+      request(
+        'GET',
+        '/v1/jobs/status',
+        200,
+        smsQueueStatusSchema,
+        undefined,
+        token,
+      ),
+    getSmsJobs: async (token) => {
+      const response = await request<SmsJobsResponse>(
+        'GET',
+        '/v1/jobs',
+        200,
+        smsJobsResponseSchema,
+        undefined,
+        token,
+      );
+      return response.jobs;
+    },
+    getNextSmsJob: async (token, createdBefore = new Date().toISOString()) => {
+      const cutoff = new Date(createdBefore);
+      if (Number.isNaN(cutoff.getTime())) {
+        throw new TypeError('SMS queue cutoff is invalid');
+      }
+      const response = await request(
+        'GET',
+        `/v1/jobs/next?createdBefore=${encodeURIComponent(cutoff.toISOString())}`,
+        200,
+        nextSmsJobResponseSchema,
+        undefined,
+        token,
+      );
+      return response.job;
+    },
+    completeSmsJob: async (token, jobId, result) => {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        throw new TypeError('SMS job ID is invalid');
+      }
+      const parsed = completeSmsJobRequestSchema.safeParse(result);
+      if (!parsed.success) {
+        throw new TypeError('SMS job result is invalid');
+      }
+      const response = await request(
+        'POST',
+        `/v1/jobs/${jobId}/result`,
+        200,
+        completeSmsJobResponseSchema,
+        parsed.data,
+        token,
+      );
+      return response.job;
+    },
+    retrySmsJob: async (token, jobId) => {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        throw new TypeError('SMS job ID is invalid');
+      }
+      const response = await request(
+        'POST',
+        `/v1/jobs/${jobId}/retry`,
+        200,
+        completeSmsJobResponseSchema,
+        {},
+        token,
+      );
+      return response.job;
+    },
+    deleteFailedSmsJob: async (token, jobId) => {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        throw new TypeError('SMS job ID is invalid');
+      }
+      return request(
+        'DELETE',
+        `/v1/jobs/${jobId}`,
+        200,
+        deleteSmsJobResponseSchema,
+        undefined,
+        token,
+      );
+    },
+    updateSmsDeliveryReport: async (token, jobId, report) => {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        throw new TypeError('SMS job ID is invalid');
+      }
+      const parsed = smsDeliveryReportRequestSchema.safeParse(report);
+      if (!parsed.success) {
+        throw new TypeError('SMS delivery report is invalid');
+      }
+      const response = await request(
+        'POST',
+        `/v1/jobs/${jobId}/delivery-report`,
+        200,
+        completeSmsJobResponseSchema,
+        parsed.data,
+        token,
+      );
+      return response.job;
+    },
   };
 }

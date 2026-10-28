@@ -208,6 +208,53 @@
         padding: 0.75rem;
       }
 
+      .job-list {
+        display: grid;
+        gap: 0.5rem;
+        list-style: none;
+        margin: 0.75rem 0 1.5rem;
+        padding: 0;
+      }
+
+      .job-row {
+        align-items: center;
+        background: #f8fafc;
+        border-radius: 0.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        justify-content: space-between;
+        padding: 0.75rem;
+      }
+
+      .job-date-heading {
+        color: #475569;
+        font-size: 0.9rem;
+        font-weight: 700;
+        margin-top: 0.75rem;
+      }
+
+      .job-details {
+        display: grid;
+        gap: 0.2rem;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .job-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 0.5rem;
+      }
+
+      .retry-job-button {
+        color: #1d4ed8;
+      }
+
+      .delete-job-button {
+        color: #b91c1c;
+      }
+
       .upload-details {
         display: grid;
         min-width: 0;
@@ -232,6 +279,18 @@
         font: inherit;
         padding: 0.7rem;
         width: 100%;
+      }
+
+      .send-button {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .send-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
       }
 
       .field-row textarea {
@@ -317,7 +376,48 @@
           </label>
           <h3>Preview using the first data row</h3>
           <p id="template-preview" class="preview" aria-live="polite"></p>
+          <div class="card" aria-labelledby="send-title">
+            <h3 id="send-title">Send spreadsheet messages</h3>
+            <p class="muted">
+              Choose the recipient column and paired Android phone. All data
+              rows are queued; sending starts on the phone after permission and
+              batch confirmation.
+            </p>
+            <label class="field-row" for="phone-column">
+              Phone-number column
+              <select id="phone-column">
+                <option value="">Choose a sheet first</option>
+              </select>
+            </label>
+            <label class="field-row" for="send-device">
+              Send using paired phone
+              <select id="send-device">
+                <option value="">No paired phone available</option>
+              </select>
+            </label>
+            <button id="queue-campaign" class="send-button" type="button" disabled>
+              Queue messages on phone
+            </button>
+            <p id="campaign-message" class="muted" role="status"></p>
+          </div>
         </div>
+        <section class="card" aria-labelledby="queue-title">
+          <div class="page-header">
+            <div>
+              <h2 id="queue-title">Message queue</h2>
+              <p id="queue-status" class="muted" aria-live="polite"></p>
+            </div>
+            <button id="refresh-queue" type="button">Refresh</button>
+          </div>
+          <h3>Pending messages</h3>
+          <ul id="pending-jobs" class="job-list"></ul>
+          <h3>Failed attempts</h3>
+          <p class="muted">Retry returns a message to the pending queue. Sending still requires confirmation on the phone.</p>
+          <ul id="failed-jobs" class="job-list"></ul>
+          <h3>Sent messages</h3>
+          <p class="muted">Delivery reports depend on the carrier and recipient network. Without a report, only sent status is shown.</p>
+          <ul id="sent-jobs" class="job-list"></ul>
+        </section>
       </section>
       <section
         id="connection-page"
