@@ -13,6 +13,9 @@ import { createServer, type Server } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import selfsigned from 'selfsigned';
 import type {
+  EnqueueSmsRequest,
+  SmsJob,
+  SmsQueueStatus,
   DesktopGatewayStatus,
   GatewayHealth,
   PairDeviceRequest,
@@ -20,16 +23,27 @@ import type {
   PairedDevice,
   PairedDeviceInfo,
 } from '@sms-gateway/shared-contracts';
-import { pairDeviceRequestSchema } from '@sms-gateway/validation';
+import {
+  completeSmsJobRequestSchema,
+  enqueueSmsRequestSchema,
+  pairDeviceRequestSchema,
+  smsJobSchema,
+  smsDeliveryReportRequestSchema,
+} from '@sms-gateway/validation';
 
 export const DEFAULT_GATEWAY_PORT = 47832;
 const PAIRING_CODE_LIFETIME_MS = 5 * 60 * 1000;
 const MAX_PAIRING_ATTEMPTS = 5;
 const PAIRING_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
-const MAX_REQUEST_BYTES = 4096;
+const MAX_REQUEST_BYTES = 8192;
 
 interface StoredDevice extends PairedDevice {
   tokenHash: string;
+}
+
+interface StoredSmsJob extends SmsJob {
+  deviceId: string;
+  idempotencyKey: string;
 }
 
 interface DeviceStore {
@@ -52,6 +66,25 @@ export interface GatewayRuntime {
   getCertificate(): string;
   rotatePairingCode(): DesktopGatewayStatus;
   revokeDevice(deviceId: string): Promise<void>;
+  enqueueSmsBatch(
+    deviceId: string,
+    requests: EnqueueSmsRequest[],
+  ): Promise<number>;
+  getSmsQueueStatus(deviceId?: string): SmsQueueStatus;
+  getSmsJobs(deviceId?: string): SmsJob[];
+  retrySmsJob(
+    jobId: string,
+    deviceId?: string,
+  ): Promise<{ status: 'retried'; job: SmsJob } | { status: 'not-found' } | { status: 'not-failed' }>;
+  deleteFailedSmsJob(
+    jobId: string,
+    deviceId?: string,
+  ): Promise<'deleted' | 'not-found' | 'not-failed'>;
+  updateSmsDeliveryReport(
+    jobId: string,
+    deviceId: string,
+    status: 'delivered' | 'not-delivered',
+  ): Promise<'updated' | 'not-found' | 'not-sent' | 'conflict'>;
   close(): Promise<void>;
 }
 
@@ -228,6 +261,61 @@ async function saveDeviceStore(
   await chmod(storePath, 0o600);
 }
 
+async function loadSmsJobs(storageDir: string): Promise<StoredSmsJob[]> {
+  const storePath = path.join(storageDir, 'sms-jobs.json');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(storePath, 'utf8')) as unknown;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('jobs' in parsed) ||
+    !Array.isArray(parsed.jobs)
+  ) {
+    throw new Error('SMS job store has an invalid format');
+  }
+
+  const jobs: StoredSmsJob[] = [];
+  for (const value of parsed.jobs as unknown[]) {
+    if (typeof value !== 'object' || value === null) {
+      throw new Error('SMS job store contains an invalid job');
+    }
+    const job = smsJobSchema.safeParse(value);
+    if (
+      !job.success ||
+      !('deviceId' in value) ||
+      typeof value.deviceId !== 'string' ||
+      !('idempotencyKey' in value) ||
+      typeof value.idempotencyKey !== 'string'
+    ) {
+      throw new Error('SMS job store contains an invalid job');
+    }
+    jobs.push({
+      ...job.data,
+      deviceId: value.deviceId,
+      idempotencyKey: value.idempotencyKey,
+    });
+  }
+  return jobs;
+}
+
+async function saveSmsJobs(
+  storageDir: string,
+  jobs: StoredSmsJob[],
+): Promise<void> {
+  const storePath = path.join(storageDir, 'sms-jobs.json');
+  const tempPath = `${storePath}.${randomUUID()}.tmp`;
+  await writeFile(tempPath, JSON.stringify({ jobs }), { mode: 0o600 });
+  await rename(tempPath, storePath);
+  await chmod(storePath, 0o600);
+}
+
 function sendJson(
   response: ServerResponse,
   statusCode: number,
@@ -295,6 +383,59 @@ export async function startGatewayServer(
   const tls = await loadOrCreateCertificate(options.storageDir);
   const certificatePin = getCertificatePin(tls.certificate);
   const store = await loadDeviceStore(options.storageDir);
+  let smsJobs = await loadSmsJobs(options.storageDir);
+  let recoveredJobs = false;
+  for (const job of smsJobs) {
+    if (job.status === 'sending') {
+      job.status = 'failed';
+      job.failureReason =
+        'Delivery state was unknown after the gateway restarted; this message was not resent.';
+      job.updatedAt = new Date().toISOString();
+      recoveredJobs = true;
+    }
+  }
+  if (recoveredJobs) {
+    await saveSmsJobs(options.storageDir, smsJobs);
+  }
+  let smsJobMutation = Promise.resolve();
+  const mutateSmsJobs = <T>(
+    operation: (jobs: StoredSmsJob[]) => T,
+  ): Promise<T> => {
+    const mutation = smsJobMutation.then(async () => {
+      const nextJobs = smsJobs.map((job) => ({ ...job }));
+      const result = operation(nextJobs);
+      await saveSmsJobs(options.storageDir, nextJobs);
+      smsJobs = nextJobs;
+      return result;
+    });
+    smsJobMutation = mutation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return mutation;
+  };
+  const getSmsQueueStatus = (deviceId?: string): SmsQueueStatus => {
+    const jobs = deviceId
+      ? smsJobs.filter((job) => job.deviceId === deviceId)
+      : smsJobs;
+    return {
+      asOf: new Date().toISOString(),
+      queued: jobs.filter((job) => job.status === 'queued').length,
+      sending: jobs.filter((job) => job.status === 'sending').length,
+      sent: jobs.filter((job) => job.status === 'sent').length,
+      failed: jobs.filter((job) => job.status === 'failed').length,
+    };
+  };
+  const getSmsJobs = (deviceId?: string): SmsJob[] =>
+    smsJobs
+      .filter(
+        (job) =>
+          (!deviceId || job.deviceId === deviceId) &&
+          (job.status === 'queued' ||
+            job.status === 'failed' ||
+            job.status === 'sent'),
+      )
+      .map(publicSmsJob);
   let pairingCode = '';
   let pairingCodeExpiresAt = 0;
   let pairingInProgress = false;
@@ -325,6 +466,91 @@ export async function startGatewayServer(
     pairingAttemptTimes.push(Date.now());
   };
 
+  const getAuthorizedDevice = (
+    request: IncomingMessage,
+  ): StoredDevice | undefined => {
+    const token = bearerToken(request);
+    return token
+      ? store.devices.find((candidate) =>
+          safeHashEquals(token, candidate.tokenHash),
+        )
+      : undefined;
+  };
+
+  const publicSmsJob = (job: StoredSmsJob): SmsJob => ({
+    id: job.id,
+    phoneNumber: job.phoneNumber,
+    message: job.message,
+    status: job.status,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    ...(job.failureReason ? { failureReason: job.failureReason } : {}),
+    ...(job.sentAt ? { sentAt: job.sentAt } : {}),
+    ...(job.deliveryStatus ? { deliveryStatus: job.deliveryStatus } : {}),
+  });
+  const retrySmsJob: GatewayRuntime['retrySmsJob'] = (jobId, deviceId) =>
+    mutateSmsJobs((jobs) => {
+      const job = jobs.find(
+        (candidate) =>
+          candidate.id === jobId &&
+          (!deviceId || candidate.deviceId === deviceId),
+      );
+      if (!job) {
+        return { status: 'not-found' };
+      }
+      if (job.status !== 'failed') {
+        return { status: 'not-failed' };
+      }
+      job.status = 'queued';
+      job.failureReason = undefined;
+      job.sentAt = undefined;
+      job.deliveryStatus = undefined;
+      job.updatedAt = new Date().toISOString();
+      return { status: 'retried', job: publicSmsJob(job) };
+    });
+  const deleteFailedSmsJob: GatewayRuntime['deleteFailedSmsJob'] = (
+    jobId,
+    deviceId,
+  ) =>
+    mutateSmsJobs((jobs) => {
+      const index = jobs.findIndex(
+        (candidate) =>
+          candidate.id === jobId &&
+          (!deviceId || candidate.deviceId === deviceId),
+      );
+      if (index === -1) {
+        return 'not-found';
+      }
+      if (jobs[index].status !== 'failed') {
+        return 'not-failed';
+      }
+      jobs.splice(index, 1);
+      return 'deleted';
+    });
+  const updateSmsDeliveryReport: GatewayRuntime['updateSmsDeliveryReport'] = (
+    jobId,
+    deviceId,
+    status,
+  ) =>
+    mutateSmsJobs((jobs) => {
+      const job = jobs.find(
+        (candidate) =>
+          candidate.id === jobId && candidate.deviceId === deviceId,
+      );
+      if (!job) {
+        return 'not-found';
+      }
+      if (job.status !== 'sent') {
+        return 'not-sent';
+      }
+      if (job.deliveryStatus && job.deliveryStatus !== status) {
+        return 'conflict';
+      }
+      job.deliveryStatus = status;
+      job.updatedAt = new Date().toISOString();
+      return 'updated';
+    });
+
   const getStatus = (): DesktopGatewayStatus => ({
     status: 'ok',
     protocolVersion: 1,
@@ -346,6 +572,7 @@ export async function startGatewayServer(
     request: IncomingMessage,
     response: ServerResponse,
   ): Promise<void> => {
+    const requestUrl = new URL(request.url ?? '/', 'https://gateway.local');
     if (request.method === 'GET' && request.url === '/v1/health') {
       const health: GatewayHealth = {
         status: 'ok',
@@ -432,12 +659,7 @@ export async function startGatewayServer(
     }
 
     if (request.method === 'GET' && request.url === '/v1/devices/me') {
-      const token = bearerToken(request);
-      const device = token
-        ? store.devices.find((candidate) =>
-            safeHashEquals(token, candidate.tokenHash),
-          )
-        : undefined;
+      const device = getAuthorizedDevice(request);
 
       if (!device) {
         sendJson(response, 401, { error: 'Device is not paired' });
@@ -451,6 +673,167 @@ export async function startGatewayServer(
         serverId,
       };
       sendJson(response, 200, result);
+      return;
+    }
+
+    if (
+      (request.method === 'GET' && request.url === '/v1/jobs/status') ||
+      (request.method === 'GET' && request.url === '/v1/jobs') ||
+      (request.method === 'GET' && requestUrl.pathname === '/v1/jobs/next') ||
+      (request.method === 'POST' &&
+        /^\/v1\/jobs\/[0-9a-f-]+\/(?:result|retry|delivery-report)$/i.test(request.url ?? '')) ||
+      (request.method === 'DELETE' &&
+        /^\/v1\/jobs\/[0-9a-f-]+$/i.test(request.url ?? ''))
+    ) {
+      const device = getAuthorizedDevice(request);
+      if (!device) {
+        sendJson(response, 401, { error: 'Device is not paired' });
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/jobs/status') {
+        sendJson(response, 200, getSmsQueueStatus(device.id));
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/jobs') {
+        sendJson(response, 200, { jobs: getSmsJobs(device.id) });
+        return;
+      }
+
+      const reportJobId = request.url?.match(
+        /^\/v1\/jobs\/([0-9a-f-]+)\/delivery-report$/i,
+      )?.[1];
+      if (request.method === 'POST' && reportJobId) {
+        const parsed = smsDeliveryReportRequestSchema.safeParse(
+          await readJsonBody(request),
+        );
+        if (!parsed.success) {
+          sendJson(response, 400, { error: 'Invalid SMS delivery report' });
+          return;
+        }
+        const result = await updateSmsDeliveryReport(
+          reportJobId,
+          device.id,
+          parsed.data.status,
+        );
+        if (result === 'not-found') {
+          sendJson(response, 404, { error: 'SMS job was not found' });
+          return;
+        }
+        if (result === 'not-sent') {
+          sendJson(response, 409, { error: 'SMS job has not been sent' });
+          return;
+        }
+        if (result === 'conflict') {
+          sendJson(response, 409, { error: 'SMS delivery report is already recorded' });
+          return;
+        }
+        const job = getSmsJobs(device.id).find((candidate) => candidate.id === reportJobId);
+        if (!job) {
+          throw new Error('Updated SMS job was not found');
+        }
+        sendJson(response, 200, { job });
+        return;
+      }
+
+      const retryJobId = request.url?.match(
+        /^\/v1\/jobs\/([0-9a-f-]+)\/retry$/i,
+      )?.[1];
+      if (request.method === 'POST' && retryJobId) {
+        const result = await retrySmsJob(retryJobId, device.id);
+        if (result.status === 'not-found') {
+          sendJson(response, 404, { error: 'SMS job was not found' });
+          return;
+        }
+        if (result.status === 'not-failed') {
+          sendJson(response, 409, { error: 'SMS job is not failed' });
+          return;
+        }
+        sendJson(response, 200, { job: result.job });
+        return;
+      }
+
+      const deleteJobId = request.url?.match(
+        /^\/v1\/jobs\/([0-9a-f-]+)$/i,
+      )?.[1];
+      if (request.method === 'DELETE' && deleteJobId) {
+        const result = await deleteFailedSmsJob(deleteJobId, device.id);
+        if (result === 'not-found') {
+          sendJson(response, 404, { error: 'SMS job was not found' });
+          return;
+        }
+        if (result === 'not-failed') {
+          sendJson(response, 409, { error: 'SMS job is not failed' });
+          return;
+        }
+        sendJson(response, 200, { deleted: true });
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/v1/jobs/next') {
+        const requestedCutoff = requestUrl.searchParams.get('createdBefore');
+        const cutoff = requestedCutoff ? Date.parse(requestedCutoff) : Date.now();
+        if (!Number.isFinite(cutoff)) {
+          sendJson(response, 400, { error: 'SMS queue cutoff is invalid' });
+          return;
+        }
+        const job = await mutateSmsJobs((jobs) => {
+          const queuedJob = jobs.find(
+            (candidate) =>
+              candidate.deviceId === device.id &&
+              candidate.status === 'queued' &&
+              Date.parse(candidate.createdAt) <= cutoff,
+          );
+          if (!queuedJob) {
+            return null;
+          }
+          queuedJob.status = 'sending';
+          queuedJob.updatedAt = new Date().toISOString();
+          return publicSmsJob(queuedJob);
+        });
+        sendJson(response, 200, { job });
+        return;
+      }
+
+      const jobId = request.url?.match(/^\/v1\/jobs\/([0-9a-f-]+)\/result$/i)?.[1];
+      const parsed = completeSmsJobRequestSchema.safeParse(
+        await readJsonBody(request),
+      );
+      if (!jobId || !parsed.success) {
+        sendJson(response, 400, { error: 'Invalid SMS job result' });
+        return;
+      }
+      const updatedJob = await mutateSmsJobs((jobs) => {
+        const job = jobs.find(
+          (candidate) =>
+            candidate.id === jobId && candidate.deviceId === device.id,
+        );
+        if (!job) {
+          return undefined;
+        }
+        if (job.status !== 'sending') {
+          return null;
+        }
+        job.status = parsed.data.status;
+        job.sentAt =
+          parsed.data.status === 'sent' ? new Date().toISOString() : undefined;
+        job.failureReason =
+          parsed.data.status === 'failed'
+            ? parsed.data.failureReason ?? 'Android could not submit this message.'
+            : undefined;
+        job.updatedAt = new Date().toISOString();
+        return publicSmsJob(job);
+      });
+      if (updatedJob === undefined) {
+        sendJson(response, 404, { error: 'SMS job was not found' });
+        return;
+      }
+      if (updatedJob === null) {
+        sendJson(response, 409, { error: 'SMS job is not awaiting a result' });
+        return;
+      }
+      sendJson(response, 200, { job: updatedJob });
       return;
     }
 
@@ -506,6 +889,58 @@ export async function startGatewayServer(
       store.devices.splice(index, 1);
       await saveDeviceStore(options.storageDir, store);
     },
+    enqueueSmsBatch: async (deviceId, requests) => {
+      if (!store.devices.some((device) => device.id === deviceId)) {
+        throw new Error('Paired device was not found');
+      }
+      if (requests.length === 0) {
+        throw new TypeError('SMS batch must contain at least one message');
+      }
+      const parsedRequests = requests.map((request) => {
+        const parsed = enqueueSmsRequestSchema.safeParse(request);
+        if (!parsed.success) {
+          throw new TypeError('SMS batch contains an invalid message');
+        }
+        return parsed.data;
+      });
+      return mutateSmsJobs((jobs) => {
+        let added = 0;
+        for (const request of parsedRequests) {
+          const existing = jobs.find(
+            (job) =>
+              job.deviceId === deviceId &&
+              job.idempotencyKey === request.idempotencyKey,
+          );
+          if (existing) {
+            if (
+              existing.phoneNumber !== request.phoneNumber ||
+              existing.message !== request.message
+            ) {
+              throw new TypeError('SMS idempotency key was reused for another message');
+            }
+            continue;
+          }
+          const timestamp = new Date().toISOString();
+          jobs.push({
+            id: randomUUID(),
+            deviceId,
+            idempotencyKey: request.idempotencyKey,
+            phoneNumber: request.phoneNumber,
+            message: request.message,
+            status: 'queued',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          });
+          added += 1;
+        }
+        return added;
+      });
+    },
+    getSmsQueueStatus,
+    getSmsJobs,
+    retrySmsJob,
+    deleteFailedSmsJob,
+    updateSmsDeliveryReport,
     close: () => {
       if (closed) {
         return Promise.resolve();
