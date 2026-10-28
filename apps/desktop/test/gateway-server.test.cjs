@@ -323,6 +323,52 @@ test('queue job listing and failed-job actions are scoped to the paired device',
   assert.equal((await client.getSmsJobs(firstDevice.token))[0].id, jobId);
 });
 
+test('records sent status separately from optional carrier delivery reports', async (t) => {
+  const { gateway } = await makeServer(t);
+  const client = createClient(gateway);
+  const paired = await client.pairDevice({
+    code: gateway.getStatus().pairingCode,
+    deviceName: 'Test Android',
+  });
+  await gateway.enqueueSmsBatch(paired.deviceId, [
+    {
+      phoneNumber: '+254700000001',
+      message: 'Delivery status test',
+      idempotencyKey: 'row-1',
+    },
+  ]);
+  const sendingJob = await client.getNextSmsJob(paired.token);
+  await assert.rejects(
+    client.updateSmsDeliveryReport(paired.token, sendingJob.id, {
+      status: 'delivered',
+    }),
+    /status 409/,
+  );
+  await client.completeSmsJob(paired.token, sendingJob.id, { status: 'sent' });
+  const [sentWithoutReport] = await client.getSmsJobs(paired.token);
+  assert.equal(sentWithoutReport.status, 'sent');
+  assert.equal(sentWithoutReport.deliveryStatus, undefined);
+
+  const delivered = await client.updateSmsDeliveryReport(
+    paired.token,
+    sendingJob.id,
+    { status: 'delivered' },
+  );
+  assert.equal(delivered.deliveryStatus, 'delivered');
+  assert.equal(
+    (await client.updateSmsDeliveryReport(paired.token, sendingJob.id, {
+      status: 'delivered',
+    })).deliveryStatus,
+    'delivered',
+  );
+  await assert.rejects(
+    client.updateSmsDeliveryReport(paired.token, sendingJob.id, {
+      status: 'not-delivered',
+    }),
+    /status 409/,
+  );
+});
+
 test('rejects SMS queue access without a valid paired-device token', async (t) => {
   const { gateway } = await makeServer(t);
   const client = createClient(gateway);

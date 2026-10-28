@@ -64,11 +64,14 @@ queue, or permanently deleted. Retrying does not send automatically: the phone
 still requires the user to confirm sending the pending batch.
 
 Messages are submitted one at a time using Android's default SIM. Keep the
-mobile app open during sending. A message marked **submitted to Android** was
-accepted by Android's SMS service; it is not a delivery receipt. Carrier
-charges may apply. Jobs left in an uncertain sending state after a restart are
-marked failed and are not automatically retried, to avoid accidental duplicate
-messages.
+mobile app open during sending. The sent list shows messages Android confirms
+it submitted. When Android later receives a carrier delivery report, the apps
+also show **Delivered** or **Not delivered**. Carriers and recipient networks
+do not always provide delivery reports; without one, the status remains **Sent**.
+Delivery reports use the existing SMS permission; Android does not require an
+additional runtime permission for these callbacks. Carrier charges may apply.
+Jobs left in an uncertain sending state after a restart are marked failed and
+are not automatically retried, to avoid accidental duplicate messages.
 
 ## Network security
 

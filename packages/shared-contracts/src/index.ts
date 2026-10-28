@@ -5,6 +5,8 @@ export type SmsJobStatus =
   | 'failed'
   | 'cancelled';
 
+export type SmsDeliveryStatus = 'delivered' | 'not-delivered';
+
 export interface SmsJob {
   id: string;
   phoneNumber: string;
@@ -13,6 +15,7 @@ export interface SmsJob {
   createdAt: string;
   updatedAt: string;
   failureReason?: string;
+  deliveryStatus?: SmsDeliveryStatus;
 }
 
 export interface EnqueueSmsRequest {
@@ -40,6 +43,10 @@ export interface DeleteSmsJobResponse {
 export interface CompleteSmsJobRequest {
   status: 'sent' | 'failed';
   failureReason?: string;
+}
+
+export interface SmsDeliveryReportRequest {
+  status: SmsDeliveryStatus;
 }
 
 export interface GatewayHealth {

@@ -3,11 +3,13 @@
  */
 
 import React from 'react';
-import { AppState, Text } from 'react-native';
+import { AppState, Platform, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { createGatewayClient } from '@sms-gateway/api-client';
 import {
+  acknowledgeDeliveryReport,
   getDeviceName,
+  getPendingDeliveryReports,
   setSecureValue,
 } from '../gateway-security';
 import App from '../App';
@@ -34,6 +36,8 @@ jest.mock('../gateway-security', () => ({
   getSecureValue: jest.fn().mockResolvedValue(null),
   removeSecureValue: jest.fn().mockResolvedValue(undefined),
   setSecureValue: jest.fn().mockResolvedValue(undefined),
+  getPendingDeliveryReports: jest.fn().mockResolvedValue([]),
+  acknowledgeDeliveryReport: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('react-native-vision-camera', () => {
@@ -118,6 +122,7 @@ function createClientMock(overrides: Record<string, unknown> = {}) {
     completeSmsJob: jest.fn(),
     retrySmsJob: jest.fn(),
     deleteFailedSmsJob: jest.fn(),
+    updateSmsDeliveryReport: jest.fn(),
     ...overrides,
   };
 }
@@ -260,6 +265,69 @@ test('shows pending and failed jobs and lets the user retry a failed message', a
   expect(retrySmsJob).toHaveBeenCalledWith('opaque-test-token', failedJob.id);
   expect(
     renderer.root.findAllByType(Text).some((text) => text.props.children === 'No failed attempts.'),
+  ).toBe(true);
+});
+
+test('records and displays carrier delivery reports for sent messages', async () => {
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const sentJob = {
+    id: 'a5f07fd8-89cf-4e62-a4d3-68e9ed229e92',
+    phoneNumber: '+254700000001',
+    message: 'Hello',
+    status: 'sent' as const,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  jest.mocked(getPendingDeliveryReports).mockResolvedValue([
+    { jobId: sentJob.id, status: 'delivered' },
+  ]);
+  const getSmsJobs = jest.fn()
+    .mockResolvedValueOnce([sentJob])
+    .mockResolvedValue([{
+      ...sentJob,
+      deliveryStatus: 'delivered' as const,
+    }]);
+  const updateSmsDeliveryReport = jest.fn().mockResolvedValue({
+    ...sentJob,
+    deliveryStatus: 'delivered',
+  });
+  jest.mocked(createGatewayClient).mockReturnValue(
+    createClientMock({
+      getSmsJobs,
+      updateSmsDeliveryReport,
+      pairDevice: jest.fn().mockResolvedValue({
+        deviceId: 'device-test-id',
+        deviceName: 'Test Android',
+        serverId: SERVER_ID,
+        token: 'opaque-test-token',
+      }),
+    }),
+  );
+
+  const renderer = renderApp();
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ testID: 'scan-pairing-qr-button' })
+      .props.onPress();
+  });
+  const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
+  await ReactTestRenderer.act(async () => {
+    camera.props.codeScanner.onCodeScanned([
+      { value: JSON.stringify(PAIRING_QR) },
+    ]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  });
+
+  expect(updateSmsDeliveryReport).toHaveBeenCalledWith(
+    'opaque-test-token',
+    sentJob.id,
+    { status: 'delivered' },
+  );
+  expect(acknowledgeDeliveryReport).toHaveBeenCalledWith(sentJob.id);
+  expect(
+    renderer.root.findAllByType(Text).some(
+      (text) => text.props.children === 'Sent · Delivered',
+    ),
   ).toBe(true);
 });
 

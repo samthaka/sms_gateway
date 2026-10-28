@@ -6,7 +6,11 @@ import type {
 
 interface GatewaySecurityNativeModule {
   getDeviceName(): Promise<string | null>;
-  sendSms(phoneNumber: string, message: string): Promise<void>;
+  sendSms(jobId: string, phoneNumber: string, message: string): Promise<void>;
+  getPendingDeliveryReports(): Promise<
+    { jobId: string; status: 'delivered' | 'not-delivered' }[]
+  >;
+  acknowledgeDeliveryReport(jobId: string): Promise<void>;
   inspectCertificate(url: string): Promise<string>;
   requestPinned(
     url: string,
@@ -38,8 +42,22 @@ export function getDeviceName(): Promise<string | null> {
   return getNativeModule().getDeviceName();
 }
 
-export function sendSms(phoneNumber: string, message: string): Promise<void> {
-  return getNativeModule().sendSms(phoneNumber, message);
+export function sendSms(
+  jobId: string,
+  phoneNumber: string,
+  message: string,
+): Promise<void> {
+  return getNativeModule().sendSms(jobId, phoneNumber, message);
+}
+
+export function getPendingDeliveryReports(): Promise<
+  { jobId: string; status: 'delivered' | 'not-delivered' }[]
+> {
+  return getNativeModule().getPendingDeliveryReports();
+}
+
+export function acknowledgeDeliveryReport(jobId: string): Promise<void> {
+  return getNativeModule().acknowledgeDeliveryReport(jobId);
 }
 
 export const gatewayTransport: GatewayTransport = {

@@ -25,5 +25,11 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+      <receiver
+        android:name=".SmsSentReceiver"
+        android:exported="false" />
+      <receiver
+        android:name=".SmsDeliveryReceiver"
+        android:exported="false" />
     </application>
 </manifest>

@@ -14,6 +14,7 @@ export const smsJobSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   failureReason: z.string().max(500).optional(),
+  deliveryStatus: z.enum(['delivered', 'not-delivered']).optional(),
 });
 
 export const nextSmsJobResponseSchema = z.object({
@@ -44,6 +45,10 @@ export const completeSmsJobRequestSchema = z.object({
 export const completeSmsJobResponseSchema = z.object({
   job: smsJobSchema,
 });
+
+export const smsDeliveryReportRequestSchema = z.object({
+  status: z.enum(['delivered', 'not-delivered']),
+}).strict();
 
 export const gatewayHealthSchema = z.object({
   status: z.literal('ok'),

@@ -28,6 +28,7 @@ import {
   enqueueSmsRequestSchema,
   pairDeviceRequestSchema,
   smsJobSchema,
+  smsDeliveryReportRequestSchema,
 } from '@sms-gateway/validation';
 
 export const DEFAULT_GATEWAY_PORT = 47832;
@@ -79,6 +80,11 @@ export interface GatewayRuntime {
     jobId: string,
     deviceId?: string,
   ): Promise<'deleted' | 'not-found' | 'not-failed'>;
+  updateSmsDeliveryReport(
+    jobId: string,
+    deviceId: string,
+    status: 'delivered' | 'not-delivered',
+  ): Promise<'updated' | 'not-found' | 'not-sent' | 'conflict'>;
   close(): Promise<void>;
 }
 
@@ -425,7 +431,9 @@ export async function startGatewayServer(
       .filter(
         (job) =>
           (!deviceId || job.deviceId === deviceId) &&
-          (job.status === 'queued' || job.status === 'failed'),
+          (job.status === 'queued' ||
+            job.status === 'failed' ||
+            job.status === 'sent'),
       )
       .map(publicSmsJob);
   let pairingCode = '';
@@ -477,6 +485,7 @@ export async function startGatewayServer(
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     ...(job.failureReason ? { failureReason: job.failureReason } : {}),
+    ...(job.deliveryStatus ? { deliveryStatus: job.deliveryStatus } : {}),
   });
   const retrySmsJob: GatewayRuntime['retrySmsJob'] = (jobId, deviceId) =>
     mutateSmsJobs((jobs) => {
@@ -514,6 +523,29 @@ export async function startGatewayServer(
       }
       jobs.splice(index, 1);
       return 'deleted';
+    });
+  const updateSmsDeliveryReport: GatewayRuntime['updateSmsDeliveryReport'] = (
+    jobId,
+    deviceId,
+    status,
+  ) =>
+    mutateSmsJobs((jobs) => {
+      const job = jobs.find(
+        (candidate) =>
+          candidate.id === jobId && candidate.deviceId === deviceId,
+      );
+      if (!job) {
+        return 'not-found';
+      }
+      if (job.status !== 'sent') {
+        return 'not-sent';
+      }
+      if (job.deliveryStatus && job.deliveryStatus !== status) {
+        return 'conflict';
+      }
+      job.deliveryStatus = status;
+      job.updatedAt = new Date().toISOString();
+      return 'updated';
     });
 
   const getStatus = (): DesktopGatewayStatus => ({
@@ -646,7 +678,7 @@ export async function startGatewayServer(
       (request.method === 'GET' && request.url === '/v1/jobs') ||
       (request.method === 'GET' && requestUrl.pathname === '/v1/jobs/next') ||
       (request.method === 'POST' &&
-        /^\/v1\/jobs\/[0-9a-f-]+\/(?:result|retry)$/i.test(request.url ?? '')) ||
+        /^\/v1\/jobs\/[0-9a-f-]+\/(?:result|retry|delivery-report)$/i.test(request.url ?? '')) ||
       (request.method === 'DELETE' &&
         /^\/v1\/jobs\/[0-9a-f-]+$/i.test(request.url ?? ''))
     ) {
@@ -663,6 +695,42 @@ export async function startGatewayServer(
 
       if (request.method === 'GET' && request.url === '/v1/jobs') {
         sendJson(response, 200, { jobs: getSmsJobs(device.id) });
+        return;
+      }
+
+      const reportJobId = request.url?.match(
+        /^\/v1\/jobs\/([0-9a-f-]+)\/delivery-report$/i,
+      )?.[1];
+      if (request.method === 'POST' && reportJobId) {
+        const parsed = smsDeliveryReportRequestSchema.safeParse(
+          await readJsonBody(request),
+        );
+        if (!parsed.success) {
+          sendJson(response, 400, { error: 'Invalid SMS delivery report' });
+          return;
+        }
+        const result = await updateSmsDeliveryReport(
+          reportJobId,
+          device.id,
+          parsed.data.status,
+        );
+        if (result === 'not-found') {
+          sendJson(response, 404, { error: 'SMS job was not found' });
+          return;
+        }
+        if (result === 'not-sent') {
+          sendJson(response, 409, { error: 'SMS job has not been sent' });
+          return;
+        }
+        if (result === 'conflict') {
+          sendJson(response, 409, { error: 'SMS delivery report is already recorded' });
+          return;
+        }
+        const job = getSmsJobs(device.id).find((candidate) => candidate.id === reportJobId);
+        if (!job) {
+          throw new Error('Updated SMS job was not found');
+        }
+        sendJson(response, 200, { job });
         return;
       }
 
@@ -867,6 +935,7 @@ export async function startGatewayServer(
     getSmsJobs,
     retrySmsJob,
     deleteFailedSmsJob,
+    updateSmsDeliveryReport,
     close: () => {
       if (closed) {
         return Promise.resolve();

@@ -28,6 +28,8 @@ import {
 import {
   getDeviceName,
   gatewayTransport,
+  getPendingDeliveryReports,
+  acknowledgeDeliveryReport,
   getSecureValue,
   removeSecureValue,
   sendSms,
@@ -97,6 +99,7 @@ function App() {
   const [queueStatus, setQueueStatus] = useState(EMPTY_QUEUE_STATUS);
   const [pendingJobs, setPendingJobs] = useState<SmsJob[]>([]);
   const [failedJobs, setFailedJobs] = useState<SmsJob[]>([]);
+  const [sentJobs, setSentJobs] = useState<SmsJob[]>([]);
   const [queueError, setQueueError] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [updatingJobId, setUpdatingJobId] = useState<string>();
@@ -253,6 +256,18 @@ function App() {
       pairing.certificatePin,
       gatewayTransport,
     );
+    if (Platform.OS === 'android') {
+      const reports = await getPendingDeliveryReports();
+      const currentJobs = await client.getSmsJobs(pairing.token);
+      for (const report of reports) {
+        if (currentJobs.some((job) => job.id === report.jobId && job.status === 'sent')) {
+          await client.updateSmsDeliveryReport(pairing.token, report.jobId, {
+            status: report.status,
+          });
+        }
+        await acknowledgeDeliveryReport(report.jobId);
+      }
+    }
     const status = await client.getSmsQueueStatus(pairing.token);
     if (isActive()) {
       setQueueStatus(status);
@@ -261,6 +276,7 @@ function App() {
     if (isActive()) {
       setPendingJobs(jobs.filter((job) => job.status === 'queued'));
       setFailedJobs(jobs.filter((job) => job.status === 'failed'));
+      setSentJobs(jobs.filter((job) => job.status === 'sent'));
       setQueueError('');
     }
     return status;
@@ -271,6 +287,7 @@ function App() {
       setQueueStatus(EMPTY_QUEUE_STATUS);
       setPendingJobs([]);
       setFailedJobs([]);
+      setSentJobs([]);
       setQueueError('');
       return;
     }
@@ -374,7 +391,7 @@ function App() {
         }
         let result: { status: 'sent' | 'failed'; failureReason?: string };
         try {
-          await sendSms(job.phoneNumber, job.message);
+          await sendSms(job.id, job.phoneNumber, job.message);
           result = { status: 'sent' };
         } catch (error) {
           result = {
@@ -666,6 +683,30 @@ function App() {
                     </Text>
                   )}
                 </View>
+                <View style={styles.jobSection}>
+                  <Text style={styles.sectionTitle}>Sent messages</Text>
+                  {sentJobs.length === 0 ? (
+                    <Text style={styles.hint}>No messages have been sent yet.</Text>
+                  ) : (
+                    sentJobs.map((job) => (
+                      <View key={job.id} style={styles.jobRow}>
+                        <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
+                        <Text style={styles.jobMessage}>{job.message}</Text>
+                        <Text style={styles.sentJobStatus}>
+                          {job.deliveryStatus === 'delivered'
+                            ? 'Sent · Delivered'
+                            : job.deliveryStatus === 'not-delivered'
+                              ? 'Sent · Not delivered'
+                              : 'Sent'}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                  <Text style={styles.hint}>
+                    Delivery reports depend on the carrier and recipient network.
+                    Without a report, only sent status is shown.
+                  </Text>
+                </View>
                 <Text style={styles.hint}>
                   Keep this app open while sending. Messages are sent one at a
                   time via the phone’s default SIM; sent means accepted by
@@ -806,6 +847,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     marginTop: 4,
+  },
+  sentJobStatus: {
+    color: '#15803d',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
   },
   jobActions: {
     flexDirection: 'row',

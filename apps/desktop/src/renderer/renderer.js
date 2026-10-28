@@ -20,6 +20,7 @@ const campaignMessageElement = document.getElementById('campaign-message');
 const queueStatusElement = document.getElementById('queue-status');
 const pendingJobsElement = document.getElementById('pending-jobs');
 const failedJobsElement = document.getElementById('failed-jobs');
+const sentJobsElement = document.getElementById('sent-jobs');
 const refreshQueueButton = document.getElementById('refresh-queue');
 const uploadsPageElement = document.getElementById('uploads-page');
 const connectionPageElement = document.getElementById('connection-page');
@@ -248,8 +249,10 @@ function renderQueueStatus(status) {
 function renderSmsJobs(jobs) {
   const pending = jobs.filter((job) => job.status === 'queued');
   const failed = jobs.filter((job) => job.status === 'failed');
+  const sent = jobs.filter((job) => job.status === 'sent');
   pendingJobsElement.replaceChildren();
   failedJobsElement.replaceChildren();
+  sentJobsElement.replaceChildren();
 
   if (pending.length === 0) {
     const empty = document.createElement('li');
@@ -335,6 +338,37 @@ function renderSmsJobs(jobs) {
     actions.append(retry, remove);
     item.append(details, actions);
     failedJobsElement.append(item);
+  }
+
+  if (sent.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = 'No messages have been sent yet.';
+    sentJobsElement.append(empty);
+  }
+  for (const job of sent) {
+    const item = document.createElement('li');
+    item.className = 'job-row';
+    const details = document.createElement('span');
+    details.className = 'job-details';
+    const recipient = document.createElement('strong');
+    recipient.textContent = job.phoneNumber;
+    const message = document.createElement('span');
+    message.textContent = job.message;
+    const status = document.createElement('span');
+    status.className = 'muted';
+    status.textContent =
+      job.deliveryStatus === 'delivered'
+        ? 'Sent · Delivered'
+        : job.deliveryStatus === 'not-delivered'
+          ? 'Sent · Not delivered'
+          : 'Sent';
+    const sentAt = document.createElement('span');
+    sentAt.className = 'muted';
+    sentAt.textContent = `Sent ${new Date(job.updatedAt).toLocaleString()}`;
+    details.append(recipient, message, status, sentAt);
+    item.append(details);
+    sentJobsElement.append(item);
   }
 }
 
