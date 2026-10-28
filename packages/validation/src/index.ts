@@ -14,6 +14,7 @@ export const smsJobSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   failureReason: z.string().max(500).optional(),
+  sentAt: z.string().datetime().optional(),
   deliveryStatus: z.enum(['delivered', 'not-delivered']).optional(),
 });
 

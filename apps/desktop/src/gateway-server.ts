@@ -485,6 +485,7 @@ export async function startGatewayServer(
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     ...(job.failureReason ? { failureReason: job.failureReason } : {}),
+    ...(job.sentAt ? { sentAt: job.sentAt } : {}),
     ...(job.deliveryStatus ? { deliveryStatus: job.deliveryStatus } : {}),
   });
   const retrySmsJob: GatewayRuntime['retrySmsJob'] = (jobId, deviceId) =>
@@ -502,6 +503,8 @@ export async function startGatewayServer(
       }
       job.status = 'queued';
       job.failureReason = undefined;
+      job.sentAt = undefined;
+      job.deliveryStatus = undefined;
       job.updatedAt = new Date().toISOString();
       return { status: 'retried', job: publicSmsJob(job) };
     });
@@ -813,6 +816,8 @@ export async function startGatewayServer(
           return null;
         }
         job.status = parsed.data.status;
+        job.sentAt =
+          parsed.data.status === 'sent' ? new Date().toISOString() : undefined;
         job.failureReason =
           parsed.data.status === 'failed'
             ? parsed.data.failureReason ?? 'Android could not submit this message.'

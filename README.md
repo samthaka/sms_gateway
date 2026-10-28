@@ -62,6 +62,8 @@ The desktop and each paired phone show their pending messages and failed
 attempts. A failed message can be retried, which returns it to the pending
 queue, or permanently deleted. Retrying does not send automatically: the phone
 still requires the user to confirm sending the pending batch.
+Message lists are grouped by their relevant date, with Today and Yesterday
+labels for recent activity.
 
 Messages are submitted one at a time using Android's default SIM. Keep the
 mobile app open during sending. The sent list shows messages Android confirms
@@ -78,7 +80,7 @@ are not automatically retried, to avoid accidental duplicate messages.
 Android debug builds allow cleartext for React Native's local Metro development
 server; release builds block cleartext. Gateway traffic itself uses HTTPS.
 
- Subsequent requests use Android OkHttp certificate pinning; no cleartext HTTP is enabled. The certificate
+Subsequent requests use Android OkHttp certificate pinning; no cleartext HTTP is enabled. The certificate
 private key and device-token hashes are kept in the desktop user's application
 data directory with owner-only POSIX file modes where supported. Device tokens
 are kept in Android Keystore-backed encrypted storage.

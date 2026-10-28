@@ -63,18 +63,10 @@ jest.mock('react-native-safe-area-context', () => {
   const { View: NativeView } = require('react-native');
 
   return {
-    SafeAreaProvider: ({
-      children,
-    }: {
-      children: React.ReactNode;
-    }) => ReactModule.createElement(NativeView, null, children),
-    SafeAreaView: ({
-      children,
-      ...props
-    }: {
-      children: React.ReactNode;
-      [key: string]: unknown;
-    }) => ReactModule.createElement(NativeView, props, children),
+    SafeAreaProvider: ({ children }: { children: React.ReactNode }) =>
+      ReactModule.createElement(NativeView, null, children),
+    SafeAreaView: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) =>
+      ReactModule.createElement(NativeView, props, children),
   };
 });
 
@@ -155,47 +147,27 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
     serverId: SERVER_ID,
     token: 'opaque-test-token',
   });
-  jest.mocked(createGatewayClient).mockReturnValue(
-    createClientMock({ pairDevice }),
-  );
+  jest.mocked(createGatewayClient).mockReturnValue(createClientMock({ pairDevice }));
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ testID: 'scan-pairing-qr-button' })
-      .props.onPress();
+    renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
 
   const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
   await ReactTestRenderer.act(async () => {
-    camera.props.codeScanner.onCodeScanned([
-      { value: JSON.stringify(PAIRING_QR) },
-    ]);
+    camera.props.codeScanner.onCodeScanned([{ value: JSON.stringify(PAIRING_QR) }]);
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
 
-  expect(createGatewayClient).toHaveBeenCalledWith(
-    PAIRING_QR.baseUrl,
-    PAIRING_QR.certificatePin,
-    expect.anything(),
-  );
+  expect(createGatewayClient).toHaveBeenCalledWith(PAIRING_QR.baseUrl, PAIRING_QR.certificatePin, expect.anything());
   expect(pairDevice).toHaveBeenCalledWith({
     code: PAIRING_QR.pairingCode,
     deviceName,
   });
-  expect(setSecureValue).toHaveBeenCalledWith(
-    'paired-gateway',
-    expect.stringContaining('opaque-test-token'),
-  );
-  expect(
-    renderer.root
-      .findAllByType(Text)
-      .some((text) => text.props.children === 'Device paired'),
-  ).toBe(true);
-  expect(
-    renderer.root.findByProps({ testID: 'send-queued-messages-button' })
-      .props.disabled,
-  ).toBe(true);
+  expect(setSecureValue).toHaveBeenCalledWith('paired-gateway', expect.stringContaining('opaque-test-token'));
+  expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'Device paired')).toBe(true);
+  expect(renderer.root.findByProps({ testID: 'send-queued-messages-button' }).props.disabled).toBe(true);
 });
 
 test('shows pending and failed jobs and lets the user retry a failed message', async () => {
@@ -220,7 +192,8 @@ test('shows pending and failed jobs and lets the user retry a failed message', a
     status: 'queued',
     failureReason: undefined,
   });
-  const getSmsJobs = jest.fn()
+  const getSmsJobs = jest
+    .fn()
     .mockResolvedValueOnce([pendingJob, failedJob])
     .mockResolvedValue([pendingJob, { ...failedJob, status: 'queued' }]);
   jest.mocked(createGatewayClient).mockReturnValue(
@@ -238,38 +211,31 @@ test('shows pending and failed jobs and lets the user retry a failed message', a
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ testID: 'scan-pairing-qr-button' })
-      .props.onPress();
+    renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
   const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
   await ReactTestRenderer.act(async () => {
-    camera.props.codeScanner.onCodeScanned([
-      { value: JSON.stringify(PAIRING_QR) },
-    ]);
+    camera.props.codeScanner.onCodeScanned([{ value: JSON.stringify(PAIRING_QR) }]);
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
 
-  expect(
-    renderer.root.findAllByType(Text).some((text) => text.props.children === 'Hello'),
-  ).toBe(true);
-  expect(
-    renderer.root.findAllByType(Text).some((text) => text.props.children === 'SIM unavailable'),
-  ).toBe(true);
+  expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'Hello')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'SIM unavailable')).toBe(true);
   await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ testID: `retry-failed-job-${failedJob.id}` })
-      .props.onPress();
+    renderer.root.findByProps({ testID: `retry-failed-job-${failedJob.id}` }).props.onPress();
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
   expect(retrySmsJob).toHaveBeenCalledWith('opaque-test-token', failedJob.id);
-  expect(
-    renderer.root.findAllByType(Text).some((text) => text.props.children === 'No failed attempts.'),
-  ).toBe(true);
+  expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'No failed attempts.')).toBe(true);
 });
 
 test('records and displays carrier delivery reports for sent messages', async () => {
-  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: 'android',
+  });
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
   const sentJob = {
     id: 'a5f07fd8-89cf-4e62-a4d3-68e9ed229e92',
     phoneNumber: '+254700000001',
@@ -278,15 +244,21 @@ test('records and displays carrier delivery reports for sent messages', async ()
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  jest.mocked(getPendingDeliveryReports).mockResolvedValue([
-    { jobId: sentJob.id, status: 'delivered' },
-  ]);
-  const getSmsJobs = jest.fn()
+  jest.mocked(getPendingDeliveryReports).mockResolvedValue([{ jobId: sentJob.id, status: 'delivered' }]);
+  const getSmsJobs = jest
+    .fn()
     .mockResolvedValueOnce([sentJob])
-    .mockResolvedValue([{
-      ...sentJob,
-      deliveryStatus: 'delivered' as const,
-    }]);
+    .mockResolvedValue([
+      {
+        ...sentJob,
+        deliveryStatus: 'delivered' as const,
+      },
+      {
+        ...sentJob,
+        id: 'b6f07fd8-89cf-4e62-a4d3-68e9ed229e93',
+        sentAt: yesterday.toISOString(),
+      },
+    ]);
   const updateSmsDeliveryReport = jest.fn().mockResolvedValue({
     ...sentJob,
     deliveryStatus: 'delivered',
@@ -306,29 +278,20 @@ test('records and displays carrier delivery reports for sent messages', async ()
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ testID: 'scan-pairing-qr-button' })
-      .props.onPress();
+    renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
   const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
   await ReactTestRenderer.act(async () => {
-    camera.props.codeScanner.onCodeScanned([
-      { value: JSON.stringify(PAIRING_QR) },
-    ]);
+    camera.props.codeScanner.onCodeScanned([{ value: JSON.stringify(PAIRING_QR) }]);
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
 
-  expect(updateSmsDeliveryReport).toHaveBeenCalledWith(
-    'opaque-test-token',
-    sentJob.id,
-    { status: 'delivered' },
-  );
+  expect(updateSmsDeliveryReport).toHaveBeenCalledWith('opaque-test-token', sentJob.id, { status: 'delivered' });
   expect(acknowledgeDeliveryReport).toHaveBeenCalledWith(sentJob.id);
-  expect(
-    renderer.root.findAllByType(Text).some(
-      (text) => text.props.children === 'Sent · Delivered',
-    ),
-  ).toBe(true);
+  expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'Sent · Delivered')).toBe(true);
+  const textContents = renderer.root.findAllByType(Text).map((text) => text.props.children);
+  expect(textContents.filter((text) => text === 'Today')).toHaveLength(1);
+  expect(textContents.filter((text) => text === 'Yesterday')).toHaveLength(1);
 });
 
 test('does not send the pairing code when the server identity mismatches', async () => {
@@ -336,29 +299,22 @@ test('does not send the pairing code when the server identity mismatches', async
   jest.mocked(createGatewayClient).mockReturnValue(
     createClientMock({
       getHealth: jest.fn().mockResolvedValue({
-      serverId: 'e0a9290e-b7f3-4b50-9d08-fd441d3d66ac',
-    }),
+        serverId: 'e0a9290e-b7f3-4b50-9d08-fd441d3d66ac',
+      }),
       pairDevice,
     }),
   );
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ testID: 'scan-pairing-qr-button' })
-      .props.onPress();
+    renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
   const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
   await ReactTestRenderer.act(async () => {
-    camera.props.codeScanner.onCodeScanned([
-      { value: JSON.stringify(PAIRING_QR) },
-    ]);
+    camera.props.codeScanner.onCodeScanned([{ value: JSON.stringify(PAIRING_QR) }]);
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
 
   expect(pairDevice).not.toHaveBeenCalled();
-  expect(setSecureValue).not.toHaveBeenCalledWith(
-    'paired-gateway',
-    expect.any(String),
-  );
+  expect(setSecureValue).not.toHaveBeenCalledWith('paired-gateway', expect.any(String));
 });

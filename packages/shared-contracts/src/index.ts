@@ -15,6 +15,7 @@ export interface SmsJob {
   createdAt: string;
   updatedAt: string;
   failureReason?: string;
+  sentAt?: string;
   deliveryStatus?: SmsDeliveryStatus;
 }
 
