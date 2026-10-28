@@ -1,8 +1,11 @@
 package com.smsgateway.mobile
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.provider.Settings
+import android.telephony.SmsManager
 import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -71,6 +74,36 @@ class GatewaySecurityModule(
       )
     } catch (error: Exception) {
       promise.reject("DEVICE_NAME_UNAVAILABLE", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun sendSms(phoneNumber: String, message: String, promise: Promise) {
+    try {
+      require(
+        reactContext.checkSelfPermission(Manifest.permission.SEND_SMS) ==
+          PackageManager.PERMISSION_GRANTED,
+      ) { "SMS permission has not been granted" }
+      require(phoneNumber.matches(Regex("^\\+?[0-9]{7,15}$"))) {
+        "Phone number is invalid"
+      }
+      require(message.isNotBlank()) { "SMS message must not be empty" }
+
+      @Suppress("DEPRECATION")
+      val smsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        reactContext.getSystemService(SmsManager::class.java)
+      } else {
+        SmsManager.getDefault()
+      }
+      val parts = smsManager.divideMessage(message)
+      if (parts.size == 1) {
+        smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+      } else {
+        smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+      }
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("SMS_SEND_FAILED", error.message, error)
     }
   }
 

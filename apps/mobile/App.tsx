@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  AppState,
   ActivityIndicator,
+  PermissionsAndroid,
   Pressable,
   Platform,
   ScrollView,
@@ -11,7 +14,10 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { createGatewayClient } from '@sms-gateway/api-client';
-import type { PairDeviceResponse } from '@sms-gateway/shared-contracts';
+import type {
+  PairDeviceResponse,
+  SmsQueueStatus,
+} from '@sms-gateway/shared-contracts';
 import {
   Camera,
   useCameraDevice,
@@ -23,12 +29,24 @@ import {
   gatewayTransport,
   getSecureValue,
   removeSecureValue,
+  sendSms,
   setSecureValue,
 } from './gateway-security';
 import { parsePairingQrPayload } from './pairing-qr';
 import { getPairingDeviceName } from './device-name';
 
 const SAVED_PAIRING_KEY = 'paired-gateway';
+const EMPTY_QUEUE_STATUS: SmsQueueStatus = {
+  asOf: new Date(0).toISOString(),
+  queued: 0,
+  sending: 0,
+  sent: 0,
+  failed: 0,
+};
+
+function isAppInForeground(): boolean {
+  return AppState.currentState === 'active' || AppState.currentState === null;
+}
 
 interface SavedPairing {
   baseUrl: string;
@@ -75,6 +93,9 @@ function parseSavedPairing(value: string): SavedPairing {
 function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [storedPairing, setStoredPairing] = useState<SavedPairing>();
+  const [queueStatus, setQueueStatus] = useState(EMPTY_QUEUE_STATUS);
+  const [queueError, setQueueError] = useState('');
+  const [isSending, setIsSending] = useState(false);
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'disconnected',
   });
@@ -218,6 +239,148 @@ function App() {
   const busy = connection.status === 'pairing';
   const paired =
     connection.status === 'connected' ? connection.pairing : undefined;
+
+  useEffect(() => {
+    if (!paired) {
+      setQueueStatus(EMPTY_QUEUE_STATUS);
+      setQueueError('');
+      return;
+    }
+
+    let active = true;
+    const refreshQueueStatus = async () => {
+      if (!isAppInForeground()) {
+        return;
+      }
+      try {
+        const client = createGatewayClient(
+          paired.baseUrl,
+          paired.certificatePin,
+          gatewayTransport,
+        );
+        const status = await client.getSmsQueueStatus(paired.token);
+        if (active) {
+          setQueueStatus(status);
+          setQueueError('');
+        }
+      } catch (error) {
+        if (active) {
+          setQueueError(
+            error instanceof Error
+              ? error.message
+              : 'Could not check the message queue.',
+          );
+        }
+      }
+    };
+
+    refreshQueueStatus();
+    const interval = setInterval(() => {
+      refreshQueueStatus();
+    }, 5000);
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshQueueStatus();
+      }
+    });
+    return () => {
+      active = false;
+      clearInterval(interval);
+      appStateSubscription.remove();
+    };
+  }, [paired]);
+
+  async function sendQueuedMessages(
+    pairing: SavedPairing,
+    createdBefore: string,
+  ) {
+    setIsSending(true);
+    setQueueError('');
+    try {
+      const client = createGatewayClient(
+        pairing.baseUrl,
+        pairing.certificatePin,
+        gatewayTransport,
+      );
+      while (isAppInForeground()) {
+        const job = await client.getNextSmsJob(pairing.token, createdBefore);
+        if (!job) {
+          break;
+        }
+        let result: { status: 'sent' | 'failed'; failureReason?: string };
+        try {
+          await sendSms(job.phoneNumber, job.message);
+          result = { status: 'sent' };
+        } catch (error) {
+          result = {
+            status: 'failed',
+            failureReason:
+              error instanceof Error
+                ? error.message.slice(0, 500)
+                : 'Android could not submit this message.',
+          };
+        }
+        await client.completeSmsJob(pairing.token, job.id, result);
+        setQueueStatus(await client.getSmsQueueStatus(pairing.token));
+      }
+      setQueueStatus(await client.getSmsQueueStatus(pairing.token));
+    } catch (error) {
+      setQueueError(
+        error instanceof Error
+          ? error.message
+          : 'Could not send queued messages.',
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function confirmBatchSend() {
+    if (!paired || isSending) {
+      return;
+    }
+    try {
+      const client = createGatewayClient(
+        paired.baseUrl,
+        paired.certificatePin,
+        gatewayTransport,
+      );
+      const currentQueue = await client.getSmsQueueStatus(paired.token);
+      setQueueStatus(currentQueue);
+      if (currentQueue.queued === 0) {
+        return;
+      }
+      const permission = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.SEND_SMS,
+      );
+      if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
+        setQueueError('SMS permission is required before messages can be sent.');
+        return;
+      }
+      Alert.alert(
+        'Send queued messages?',
+        `${currentQueue.queued} SMS message${currentQueue.queued === 1 ? '' : 's'} ` +
+          'will be submitted one at a time using this phone’s default SIM. ' +
+          'Carrier charges may apply.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Send messages',
+            onPress: () => {
+              sendQueuedMessages(paired, currentQueue.asOf);
+            },
+          },
+        ],
+      );
+    } catch (error) {
+      setQueueError(
+        error instanceof Error
+          ? error.message
+          : 'Could not request SMS permission.',
+      );
+    }
+  }
+
   const codeScanner = useCodeScanner({
     codeTypes: ['qr'],
     onCodeScanned: (codes) => {
@@ -334,6 +497,45 @@ function App() {
                   {paired.deviceName} is securely connected to the desktop
                   gateway.
                 </Text>
+                <Text style={styles.queueStatus}>
+                  {queueStatus.queued} waiting · {queueStatus.sending} sending
+                  {'\n'}
+                  {queueStatus.sent} submitted to Android · {queueStatus.failed}{' '}
+                  failed
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSending || queueStatus.queued === 0}
+                  onPress={confirmBatchSend}
+                  testID="send-queued-messages-button"
+                  style={({ pressed }) => [
+                    styles.button,
+                    pressed && styles.buttonPressed,
+                    (isSending || queueStatus.queued === 0) &&
+                      styles.buttonDisabled,
+                  ]}
+                >
+                  {isSending ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>
+                      Send queued messages ({queueStatus.queued})
+                    </Text>
+                  )}
+                </Pressable>
+                <Text style={styles.hint}>
+                  Keep this app open while sending. Messages are sent one at a
+                  time via the phone’s default SIM; sent means accepted by
+                  Android, not confirmed delivered.
+                </Text>
+                {!!queueError && (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    style={styles.errorMessage}
+                  >
+                    {queueError}
+                  </Text>
+                )}
                 <Pressable
                   accessibilityRole="button"
                   onPress={forgetDevice}
@@ -420,6 +622,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 18,
+  },
+  queueStatus: {
+    color: '#0f172a',
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 6,
   },
   card: {
     backgroundColor: '#fff',

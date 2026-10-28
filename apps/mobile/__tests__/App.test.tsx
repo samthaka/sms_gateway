@@ -78,6 +78,16 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+const renderedApps: ReactTestRenderer.ReactTestRenderer[] = [];
+
+afterEach(() => {
+  for (const renderer of renderedApps.splice(0)) {
+    ReactTestRenderer.act(() => {
+      renderer.unmount();
+    });
+  }
+});
+
 function renderApp(): ReactTestRenderer.ReactTestRenderer {
   let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
   ReactTestRenderer.act(() => {
@@ -86,7 +96,26 @@ function renderApp(): ReactTestRenderer.ReactTestRenderer {
   if (!renderer) {
     throw new Error('App did not render');
   }
+  renderedApps.push(renderer);
   return renderer;
+}
+
+function createClientMock(overrides: Record<string, unknown> = {}) {
+  return {
+    getHealth: jest.fn().mockResolvedValue({ serverId: SERVER_ID }),
+    pairDevice: jest.fn(),
+    getPairedDevice: jest.fn(),
+    getSmsQueueStatus: jest.fn().mockResolvedValue({
+      asOf: new Date().toISOString(),
+      queued: 0,
+      sending: 0,
+      sent: 0,
+      failed: 0,
+    }),
+    getNextSmsJob: jest.fn().mockResolvedValue(null),
+    completeSmsJob: jest.fn(),
+    ...overrides,
+  };
 }
 
 test('rejects invalid and expired pairing QR payloads', () => {
@@ -117,11 +146,9 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
     serverId: SERVER_ID,
     token: 'opaque-test-token',
   });
-  jest.mocked(createGatewayClient).mockReturnValue({
-    getHealth: jest.fn().mockResolvedValue({ serverId: SERVER_ID }),
-    pairDevice,
-    getPairedDevice: jest.fn(),
-  });
+  jest.mocked(createGatewayClient).mockReturnValue(
+    createClientMock({ pairDevice }),
+  );
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {
@@ -156,17 +183,22 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
       .findAllByType(Text)
       .some((text) => text.props.children === 'Device paired'),
   ).toBe(true);
+  expect(
+    renderer.root.findByProps({ testID: 'send-queued-messages-button' })
+      .props.disabled,
+  ).toBe(true);
 });
 
 test('does not send the pairing code when the server identity mismatches', async () => {
   const pairDevice = jest.fn();
-  jest.mocked(createGatewayClient).mockReturnValue({
-    getHealth: jest.fn().mockResolvedValue({
+  jest.mocked(createGatewayClient).mockReturnValue(
+    createClientMock({
+      getHealth: jest.fn().mockResolvedValue({
       serverId: 'e0a9290e-b7f3-4b50-9d08-fd441d3d66ac',
     }),
-    pairDevice,
-    getPairedDevice: jest.fn(),
-  });
+      pairDevice,
+    }),
+  );
 
   const renderer = renderApp();
   await ReactTestRenderer.act(async () => {

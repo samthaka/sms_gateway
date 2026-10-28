@@ -6,6 +6,7 @@ import type {
 
 interface GatewaySecurityNativeModule {
   getDeviceName(): Promise<string | null>;
+  sendSms(phoneNumber: string, message: string): Promise<void>;
   inspectCertificate(url: string): Promise<string>;
   requestPinned(
     url: string,
@@ -35,6 +36,10 @@ export function inspectGatewayCertificate(healthUrl: string): Promise<string> {
 
 export function getDeviceName(): Promise<string | null> {
   return getNativeModule().getDeviceName();
+}
+
+export function sendSms(phoneNumber: string, message: string): Promise<void> {
+  return getNativeModule().sendSms(phoneNumber, message);
 }
 
 export const gatewayTransport: GatewayTransport = {

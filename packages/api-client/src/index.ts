@@ -1,14 +1,22 @@
 import type {
+  CompleteSmsJobRequest,
   GatewayHealth,
   PairDeviceRequest,
   PairDeviceResponse,
   PairedDeviceInfo,
+  SmsJob,
+  SmsQueueStatus,
 } from '@sms-gateway/shared-contracts';
 import {
+  completeSmsJobRequestSchema,
+  completeSmsJobResponseSchema,
   gatewayHealthSchema,
+  nextSmsJobResponseSchema,
   pairDeviceRequestSchema,
   pairDeviceResponseSchema,
   pairedDeviceInfoSchema,
+  smsJobSchema,
+  smsQueueStatusSchema,
 } from '@sms-gateway/validation';
 
 export interface GatewayHttpResponse {
@@ -30,6 +38,16 @@ export interface GatewayClient {
   getHealth(): Promise<GatewayHealth>;
   pairDevice(request: PairDeviceRequest): Promise<PairDeviceResponse>;
   getPairedDevice(token: string): Promise<PairedDeviceInfo>;
+  getSmsQueueStatus(token: string): Promise<SmsQueueStatus>;
+  getNextSmsJob(
+    token: string,
+    createdBefore?: string,
+  ): Promise<SmsJob | null>;
+  completeSmsJob(
+    token: string,
+    jobId: string,
+    result: CompleteSmsJobRequest,
+  ): Promise<SmsJob>;
 }
 
 function parseResponse<T>(
@@ -131,5 +149,47 @@ export function createGatewayClient(
         undefined,
         token,
       ),
+    getSmsQueueStatus: (token) =>
+      request(
+        'GET',
+        '/v1/jobs/status',
+        200,
+        smsQueueStatusSchema,
+        undefined,
+        token,
+      ),
+    getNextSmsJob: async (token, createdBefore = new Date().toISOString()) => {
+      const cutoff = new Date(createdBefore);
+      if (Number.isNaN(cutoff.getTime())) {
+        throw new TypeError('SMS queue cutoff is invalid');
+      }
+      const response = await request(
+        'GET',
+        `/v1/jobs/next?createdBefore=${encodeURIComponent(cutoff.toISOString())}`,
+        200,
+        nextSmsJobResponseSchema,
+        undefined,
+        token,
+      );
+      return response.job;
+    },
+    completeSmsJob: async (token, jobId, result) => {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        throw new TypeError('SMS job ID is invalid');
+      }
+      const parsed = completeSmsJobRequestSchema.safeParse(result);
+      if (!parsed.success) {
+        throw new TypeError('SMS job result is invalid');
+      }
+      const response = await request(
+        'POST',
+        `/v1/jobs/${jobId}/result`,
+        200,
+        completeSmsJobResponseSchema,
+        parsed.data,
+        token,
+      );
+      return response.job;
+    },
   };
 }

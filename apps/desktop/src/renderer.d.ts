@@ -1,6 +1,11 @@
-import type { DesktopGatewayStatus } from '@sms-gateway/shared-contracts';
+import type {
+  DesktopGatewayStatus,
+  SmsQueueStatus,
+} from '@sms-gateway/shared-contracts';
 import type { SpreadsheetUpload } from './upload-storage';
-import type { SpreadsheetSheet } from './spreadsheet-reader';
+import type {
+  SpreadsheetSheet,
+} from './spreadsheet-reader';
 
 interface DesktopPairingQrCode {
   address: string;
@@ -27,6 +32,14 @@ declare global {
       deleteSpreadsheetUpload(uploadId: string): Promise<SpreadsheetUpload[]>;
       selectSpreadsheet(): Promise<SpreadsheetUploadSelection>;
       readSpreadsheetSheets(uploadId: string): Promise<SpreadsheetSheet[]>;
+      enqueueSpreadsheetCampaign(input: {
+        uploadId: string;
+        sheetNumber: number;
+        phoneHeader: string;
+        template: string;
+        deviceId: string;
+      }): Promise<{ enqueued: number; queueStatus: SmsQueueStatus }>;
+      getSmsQueueStatus(): Promise<SmsQueueStatus>;
     };
   }
 }

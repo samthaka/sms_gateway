@@ -13,6 +13,11 @@ const sheetSelectContainer = document.getElementById('sheet-select-container');
 const templateEditor = document.getElementById('message-template');
 const templateFieldsElement = document.getElementById('template-fields');
 const templatePreviewElement = document.getElementById('template-preview');
+const phoneColumnSelect = document.getElementById('phone-column');
+const sendDeviceSelect = document.getElementById('send-device');
+const queueCampaignButton = document.getElementById('queue-campaign');
+const campaignMessageElement = document.getElementById('campaign-message');
+const queueStatusElement = document.getElementById('queue-status');
 const uploadsPageElement = document.getElementById('uploads-page');
 const connectionPageElement = document.getElementById('connection-page');
 const openConnectionButton = document.getElementById('open-connection');
@@ -21,10 +26,48 @@ let activeSheets = [];
 const templateStorageKey = 'sms-gateway-message-template';
 templateEditor.value = window.localStorage.getItem(templateStorageKey) ?? '';
 
-function renderTemplatePreview() {
-  const sheet = activeSheets.find(
+function selectedSheet() {
+  return activeSheets.find(
     (candidate) => candidate.number === Number(sheetSelect.value),
   );
+}
+
+function updateCampaignAvailability() {
+  queueCampaignButton.disabled = !(
+    spreadsheetSelect.value &&
+    selectedSheet() &&
+    phoneColumnSelect.value &&
+    templateEditor.value.trim() &&
+    sendDeviceSelect.value
+  );
+}
+
+function renderPhoneColumnOptions(sheet) {
+  phoneColumnSelect.replaceChildren();
+  const promptOption = document.createElement('option');
+  promptOption.value = '';
+  promptOption.textContent = sheet
+    ? 'Choose a phone-number column'
+    : 'Choose a sheet first';
+  phoneColumnSelect.append(promptOption);
+  if (sheet) {
+    let suggestedHeader = '';
+    for (const header of sheet.headers) {
+      const option = document.createElement('option');
+      option.value = header;
+      option.textContent = header;
+      phoneColumnSelect.append(option);
+      if (!suggestedHeader && /phone|mobile|telephone|cell/i.test(header)) {
+        suggestedHeader = header;
+      }
+    }
+    phoneColumnSelect.value = suggestedHeader;
+  }
+  updateCampaignAvailability();
+}
+
+function renderTemplatePreview() {
+  const sheet = selectedSheet();
   if (!sheet || sheet.sample.length === 0 || !templateEditor.value) {
     templatePreviewElement.textContent = !spreadsheetSelect.value
       ? 'Select a spreadsheet to preview the message.'
@@ -33,6 +76,7 @@ function renderTemplatePreview() {
         : !templateEditor.value
           ? 'Enter a message to preview it.'
           : 'No sample data row is available for this sheet.';
+    updateCampaignAvailability();
     return;
   }
 
@@ -41,6 +85,7 @@ function renderTemplatePreview() {
     preview = preview.split(`{${header}}`).join(value);
   }
   templatePreviewElement.textContent = preview;
+  updateCampaignAvailability();
 }
 
 function renderTemplateFields(sheet) {
@@ -54,6 +99,7 @@ function renderTemplateFields(sheet) {
         ? 'Choose a sheet number to load its headers.'
         : 'No column headers were found on this sheet.';
     templateFieldsElement.append(message);
+    renderPhoneColumnOptions(sheet);
     renderTemplatePreview();
     return;
   }
@@ -74,6 +120,7 @@ function renderTemplateFields(sheet) {
     });
     templateFieldsElement.append(button);
   }
+  renderPhoneColumnOptions(sheet);
   renderTemplatePreview();
 }
 
@@ -151,6 +198,57 @@ templateEditor.addEventListener('input', () => {
   window.localStorage.setItem(templateStorageKey, templateEditor.value);
   renderTemplatePreview();
 });
+
+phoneColumnSelect.addEventListener('change', updateCampaignAvailability);
+sendDeviceSelect.addEventListener('change', updateCampaignAvailability);
+
+queueCampaignButton.addEventListener('click', async () => {
+  const sheet = selectedSheet();
+  if (
+    !sheet ||
+    !spreadsheetSelect.value ||
+    !phoneColumnSelect.value ||
+    !sendDeviceSelect.value ||
+    !templateEditor.value.trim()
+  ) {
+    return;
+  }
+  queueCampaignButton.disabled = true;
+  campaignMessageElement.textContent = '';
+  try {
+    const result = await window.smsGateway.enqueueSpreadsheetCampaign({
+      uploadId: spreadsheetSelect.value,
+      sheetNumber: sheet.number,
+      phoneHeader: phoneColumnSelect.value,
+      template: templateEditor.value,
+      deviceId: sendDeviceSelect.value,
+    });
+    campaignMessageElement.textContent =
+      `Queued ${result.enqueued} message${result.enqueued === 1 ? '' : 's'}. ` +
+      'Keep the selected phone app open; it will ask before sending.';
+    renderQueueStatus(result.queueStatus);
+  } catch (error) {
+    campaignMessageElement.textContent =
+      `Could not queue messages: ${error.message}`;
+  } finally {
+    updateCampaignAvailability();
+  }
+});
+
+function renderQueueStatus(status) {
+  queueStatusElement.textContent =
+    `Queue: ${status.queued} waiting, ${status.sending} sending, ` +
+    `${status.sent} submitted to Android, ${status.failed} failed.`;
+}
+
+function refreshQueueStatus() {
+  window.smsGateway.getSmsQueueStatus()
+    .then(renderQueueStatus)
+    .catch((error) => {
+      queueStatusElement.textContent =
+        `Queue status unavailable: ${error.message}`;
+    });
+}
 
 openConnectionButton.addEventListener('click', () => {
   uploadsPageElement.hidden = true;
@@ -263,6 +361,28 @@ function renderStatus(status) {
   addressesElement.replaceChildren();
   pairingQrCodesElement.replaceChildren();
   devicesElement.replaceChildren();
+  const selectedDeviceId = sendDeviceSelect.value;
+  sendDeviceSelect.replaceChildren();
+  const devicePrompt = document.createElement('option');
+  devicePrompt.value = '';
+  devicePrompt.textContent = status.pairedDevices.length === 0
+    ? 'No paired phone available'
+    : 'Choose a paired phone';
+  sendDeviceSelect.append(devicePrompt);
+  for (const device of status.pairedDevices) {
+    const option = document.createElement('option');
+    option.value = device.id;
+    option.textContent = device.name;
+    sendDeviceSelect.append(option);
+  }
+  sendDeviceSelect.value = status.pairedDevices.some(
+    (device) => device.id === selectedDeviceId,
+  )
+    ? selectedDeviceId
+    : status.pairedDevices.length === 1
+      ? status.pairedDevices[0].id
+      : '';
+  updateCampaignAvailability();
 
   if (status.addresses.length === 0) {
     const item = document.createElement('li');
@@ -296,6 +416,7 @@ function renderStatus(status) {
     empty.className = 'muted';
     empty.textContent = 'No devices paired yet.';
     devicesElement.append(empty);
+    refreshQueueStatus();
     return;
   }
 
@@ -320,6 +441,7 @@ function renderStatus(status) {
     row.append(label, revoke);
     devicesElement.append(row);
   }
+  refreshQueueStatus();
 }
 
 window.smsGateway.getStatus()

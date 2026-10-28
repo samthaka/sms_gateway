@@ -234,6 +234,18 @@
         width: 100%;
       }
 
+      .send-button {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .send-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
       .field-row textarea {
         min-height: 8rem;
         resize: vertical;
@@ -317,6 +329,31 @@
           </label>
           <h3>Preview using the first data row</h3>
           <p id="template-preview" class="preview" aria-live="polite"></p>
+          <div class="card" aria-labelledby="send-title">
+            <h3 id="send-title">Send spreadsheet messages</h3>
+            <p class="muted">
+              Choose the recipient column and paired Android phone. All data
+              rows are queued; sending starts on the phone after permission and
+              batch confirmation.
+            </p>
+            <label class="field-row" for="phone-column">
+              Phone-number column
+              <select id="phone-column">
+                <option value="">Choose a sheet first</option>
+              </select>
+            </label>
+            <label class="field-row" for="send-device">
+              Send using paired phone
+              <select id="send-device">
+                <option value="">No paired phone available</option>
+              </select>
+            </label>
+            <button id="queue-campaign" class="send-button" type="button" disabled>
+              Queue messages on phone
+            </button>
+            <p id="campaign-message" class="muted" role="status"></p>
+            <p id="queue-status" class="muted" aria-live="polite"></p>
+          </div>
         </div>
       </section>
       <section

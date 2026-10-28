@@ -154,6 +154,92 @@ test('a pairing code can only establish one concurrent link and can be rotated f
   assert.equal(gateway.getStatus().pairedDevices.length, 2);
 });
 
+test('queues jobs for the paired phone, records SMS results, and does not resend interrupted jobs', async (t) => {
+  const { gateway, storageDir } = await makeServer(t);
+  const client = createClient(gateway);
+  const paired = await client.pairDevice({
+    code: gateway.getStatus().pairingCode,
+    deviceName: 'Test Android',
+  });
+  assert.equal(
+    await gateway.enqueueSmsBatch(paired.deviceId, [
+      {
+        phoneNumber: '+254700000001',
+        message: 'Hello one',
+        idempotencyKey: 'row-1',
+      },
+    ]),
+    1,
+  );
+  const firstQueueSnapshot = await client.getSmsQueueStatus(paired.token);
+  assert.deepEqual(
+    (({ asOf, ...status }) => status)(firstQueueSnapshot),
+    {
+      queued: 1,
+      sending: 0,
+      sent: 0,
+      failed: 0,
+    },
+  );
+  assert.equal(
+    await gateway.enqueueSmsBatch(paired.deviceId, [
+      {
+        phoneNumber: '+254700000002',
+        message: 'Hello two',
+        idempotencyKey: 'row-2',
+      },
+    ]),
+    1,
+  );
+  const firstJob = await client.getNextSmsJob(
+    paired.token,
+    firstQueueSnapshot.asOf,
+  );
+  assert.equal(firstJob?.phoneNumber, '+254700000001');
+  assert.equal(firstJob?.status, 'sending');
+  await client.completeSmsJob(paired.token, firstJob.id, { status: 'sent' });
+  assert.equal(
+    await client.getNextSmsJob(paired.token, firstQueueSnapshot.asOf),
+    null,
+  );
+  const interruptedJob = await client.getNextSmsJob(paired.token);
+  assert.equal(interruptedJob?.phoneNumber, '+254700000002');
+
+  await gateway.close();
+  const restarted = await startGatewayServer({
+    host: '127.0.0.1',
+    port: 0,
+    storageDir,
+  });
+  t.after(() => restarted.close());
+  const restartedClient = createClient(restarted);
+  const restartedQueue = await restartedClient.getSmsQueueStatus(paired.token);
+  assert.deepEqual(
+    (({ asOf, ...status }) => status)(restartedQueue),
+    {
+      queued: 0,
+      sending: 0,
+      sent: 1,
+      failed: 1,
+    },
+  );
+  await assert.rejects(
+    restartedClient.completeSmsJob(paired.token, interruptedJob.id, {
+      status: 'sent',
+    }),
+    /status 409/,
+  );
+});
+
+test('rejects SMS queue access without a valid paired-device token', async (t) => {
+  const { gateway } = await makeServer(t);
+  const client = createClient(gateway);
+  await assert.rejects(
+    client.getSmsQueueStatus('not-a-valid-token'),
+    /status 401/,
+  );
+});
+
 test('rejects incorrect pairing codes and enforces the attempt limit', async (t) => {
   const { gateway } = await makeServer(t);
   const client = createClient(gateway);

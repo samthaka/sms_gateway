@@ -3,7 +3,7 @@
 A TypeScript monorepo for a desktop-hosted SMS gateway and a React Native mobile
 gateway. The desktop app is intended to own campaigns, the persistent queue,
 and the local API. Android devices connect over the local network and send queued
-messages through a user-selected SIM.
+messages through the default SIM.
 
 ## Workspace
 
@@ -17,12 +17,12 @@ messages through a user-selected SIM.
 
 The desktop hosts a LAN gateway on port `47832` over HTTPS. Android devices pair
 with a short-lived QR code. Paired device credentials are stored as hashes on desktop and
-encrypted with Android Keystore on the phone. This milestone does not yet queue or send SMS. The desktop app can save uploaded
-Excel spreadsheets (.xls and .xlsx) in its per-user application data directory,
-select a single workbook and worksheet, and compose a personalized message
-template using spreadsheet column headers. The template preview uses the first
-data row; actual SMS delivery and per-row message generation are not yet
-implemented.
+encrypted with Android Keystore on the phone. The desktop app saves uploaded Excel spreadsheets (.xls and .xlsx) in its
+per-user application data directory, selects a workbook and worksheet, and
+composes a personalized message template using spreadsheet column headers. It
+can queue a message for each data row to a selected paired Android phone. The
+phone sends the batch while the app is open, after SMS permission and explicit
+batch confirmation.
 
 ## Requirements
 
@@ -44,34 +44,37 @@ npm run mobile:start
 npm run android
 ```
 
-This milestone adds a native Android networking and secure-storage module, so
-rebuild/reinstall Android with `npm run android`; a Metro refresh alone is not
-enough.
+The native Android app includes pinned networking, secure storage, and SMS
+sending, so rebuild/reinstall Android with `npm run android`; a Metro refresh
+alone is not enough.
 
-When the desktop and mobile apps  are running:
+When the desktop and mobile apps are running:
 
 1. Open the mobile app, grant camera permissions and scan the QR code on the desktop app.
-2. Revoke paired devices from the desktop. **Forget on this phone** removes
-   local credentials only; it does not revoke desktop access.
-3. Upload a spreadsheet.
+2. Upload a spreadsheet, select its worksheet and phone-number column, and
+   write a message using the column placeholders.
+3. Select the paired phone and choose **Queue messages on phone**.
+4. On the phone, grant SMS permission and confirm the batch to begin sending.
+5. Revoke paired devices from the desktop when needed. **Forget on this phone**
+   removes local credentials only; it does not revoke desktop access.
 
-The Android app needs native SMS permission and SIM selection/send integration
-before it can transmit messages; those are not included in this milestone.
+Messages are submitted one at a time using Android's default SIM. Keep the
+mobile app open during sending. A message marked **submitted to Android** was
+accepted by Android's SMS service; it is not a delivery receipt. Carrier
+charges may apply. Jobs left in an uncertain sending state after a restart are
+marked failed and are not automatically retried, to avoid accidental duplicate
+messages.
 
 ## Network security
 
 Android debug builds allow cleartext for React Native's local Metro development
 server; release builds block cleartext. Gateway traffic itself uses HTTPS.
 
-The Android app first inspects the server certificate without sending pairing
-credentials. It only sends the one-time pairing code after the user explicitly
-confirms the displayed public-key fingerprint. Subsequent requests use Android
-OkHttp certificate pinning; no cleartext HTTP is enabled. The certificate
+ Subsequent requests use Android OkHttp certificate pinning; no cleartext HTTP is enabled. The certificate
 private key and device-token hashes are kept in the desktop user's application
 data directory with owner-only POSIX file modes where supported. Device tokens
 are kept in Android Keystore-backed encrypted storage.
 
-The desktop API currently exposes health, pairing, paired-device identity, and
-desktop-local device revocation only. Before adding queue or campaign operations,
-authorize each operation and use acknowledgments and idempotent job identifiers
-so reconnects do not silently lose or duplicate messages.
+The desktop API authorizes queue inspection, job claiming, and result
+acknowledgments with the paired device token. Jobs are persisted on the desktop
+and use idempotent identifiers.

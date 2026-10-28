@@ -12,12 +12,26 @@ export interface SmsJob {
   status: SmsJobStatus;
   createdAt: string;
   updatedAt: string;
+  failureReason?: string;
 }
 
 export interface EnqueueSmsRequest {
   phoneNumber: string;
   message: string;
   idempotencyKey: string;
+}
+
+export interface SmsQueueStatus {
+  asOf: string;
+  queued: number;
+  sending: number;
+  sent: number;
+  failed: number;
+}
+
+export interface CompleteSmsJobRequest {
+  status: 'sent' | 'failed';
+  failureReason?: string;
 }
 
 export interface GatewayHealth {

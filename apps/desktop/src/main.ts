@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import path from 'node:path';
 import { startGatewayServer, type GatewayRuntime } from './gateway-server';
@@ -7,7 +8,7 @@ import {
   listSpreadsheetUploads,
   storeSpreadsheetUpload,
 } from './upload-storage';
-import { readSpreadsheetSheets } from './spreadsheet-reader';
+import { readSpreadsheetRows, readSpreadsheetSheets } from './spreadsheet-reader';
 import type { DesktopGatewayStatus, PairingQrPayload } from '@sms-gateway/shared-contracts';
 
 let gateway: GatewayRuntime | undefined;
@@ -93,6 +94,88 @@ ipcMain.handle('gateway:revoke-device', async (_event, deviceId: unknown) => {
   }
   await gateway.revokeDevice(deviceId);
   return getDisplayStatus();
+});
+
+ipcMain.handle('gateway:get-sms-queue-status', () => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  return gateway.getSmsQueueStatus();
+});
+
+ipcMain.handle('gateway:enqueue-spreadsheet-campaign', async (_event, input: unknown) => {
+  if (!gateway) {
+    throw new Error('Gateway service is not running');
+  }
+  if (
+    typeof input !== 'object' ||
+    input === null ||
+    !('uploadId' in input) ||
+    typeof input.uploadId !== 'string' ||
+    !('sheetNumber' in input) ||
+    typeof input.sheetNumber !== 'number' ||
+    !('phoneHeader' in input) ||
+    typeof input.phoneHeader !== 'string' ||
+    !('template' in input) ||
+    typeof input.template !== 'string' ||
+    !('deviceId' in input) ||
+    typeof input.deviceId !== 'string'
+  ) {
+    throw new TypeError('Spreadsheet campaign details are invalid');
+  }
+  if (input.template.trim().length === 0) {
+    throw new TypeError('Enter a message before queuing a campaign');
+  }
+  const phoneHeader = input.phoneHeader;
+  const template = input.template;
+
+  const rows = await readSpreadsheetRows(
+    path.join(app.getPath('userData'), 'uploads'),
+    input.uploadId,
+    input.sheetNumber,
+  );
+  if (rows.length === 0) {
+    throw new Error('The selected sheet contains no data rows');
+  }
+
+  const requests = rows.map((row) => {
+    const phoneCell = row.values.find(
+      (value) => value.header === phoneHeader,
+    );
+    const phoneText = phoneCell?.value.trim() ?? '';
+    if (!/^\+?[\d\s().-]+$/.test(phoneText)) {
+      throw new TypeError(
+        `Invalid phone number in spreadsheet row ${row.rowNumber}`,
+      );
+    }
+    const phoneNumber = phoneText.replace(/[\s().-]/g, '');
+    if (!/^\+?[0-9]{7,15}$/.test(phoneNumber)) {
+      throw new TypeError(
+        `Invalid phone number in spreadsheet row ${row.rowNumber}`,
+      );
+    }
+
+    let message = template;
+    for (const { header, value } of row.values) {
+      message = message.split(`{${header}}`).join(value);
+    }
+    if (!message.trim()) {
+      throw new TypeError(
+        `Message is empty for spreadsheet row ${row.rowNumber}`,
+      );
+    }
+    return {
+      phoneNumber,
+      message,
+      idempotencyKey: randomUUID(),
+    };
+  });
+
+  const enqueued = await gateway.enqueueSmsBatch(input.deviceId, requests);
+  return {
+    enqueued,
+    queueStatus: gateway.getSmsQueueStatus(),
+  };
 });
 
 ipcMain.handle('uploads:list-spreadsheets', () =>
