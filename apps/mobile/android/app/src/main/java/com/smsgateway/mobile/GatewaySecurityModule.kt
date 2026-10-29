@@ -1,14 +1,23 @@
 package com.smsgateway.mobile
 
+import android.app.Activity
+import android.app.PendingIntent
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.provider.Settings
+import android.telephony.SmsManager
 import android.util.Base64
+import android.net.Uri
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import android.os.Handler
+import android.os.Looper
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -75,6 +84,132 @@ class GatewaySecurityModule(
   }
 
   @ReactMethod
+  fun sendSms(jobId: String, phoneNumber: String, message: String, promise: Promise) {
+    try {
+      require(
+        reactContext.checkSelfPermission(Manifest.permission.SEND_SMS) ==
+          PackageManager.PERMISSION_GRANTED,
+      ) { "SMS permission has not been granted" }
+      require(phoneNumber.matches(Regex("^\\+?[0-9]{7,15}$"))) {
+        "Phone number is invalid"
+      }
+      require(message.isNotBlank()) { "SMS message must not be empty" }
+      require(jobId.matches(Regex("^[0-9a-fA-F-]{36}$"))) { "SMS job ID is invalid" }
+
+      @Suppress("DEPRECATION")
+      val smsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        reactContext.getSystemService(SmsManager::class.java)
+      } else {
+        SmsManager.getDefault()
+      }
+      val parts = smsManager.divideMessage(message)
+      SmsReportStore.prepare(reactContext, jobId, parts.size)
+      val sentIntents = parts.indices.map { part ->
+        smsResultPendingIntent(jobId, part, SmsSentReceiver::class.java, "sent")
+      }.toCollection(ArrayList())
+      val deliveryIntents = parts.indices.map { part ->
+        smsResultPendingIntent(jobId, part, SmsDeliveryReceiver::class.java, "delivery")
+      }.toCollection(ArrayList())
+      if (parts.size == 1) {
+        smsManager.sendTextMessage(
+          phoneNumber,
+          null,
+          message,
+          sentIntents.first(),
+          deliveryIntents.first(),
+        )
+      } else {
+        smsManager.sendMultipartTextMessage(
+          phoneNumber,
+          null,
+          parts,
+          sentIntents,
+          deliveryIntents,
+        )
+      }
+      awaitSmsSubmission(jobId, promise)
+    } catch (error: Exception) {
+      promise.reject("SMS_SEND_FAILED", error.message, error)
+    }
+  }
+
+  private fun smsResultPendingIntent(
+    jobId: String,
+    part: Int,
+    receiver: Class<out android.content.BroadcastReceiver>,
+    kind: String,
+  ): PendingIntent {
+    val intent = Intent(reactContext, receiver).apply {
+      action = "com.smsgateway.mobile.SMS_${kind.uppercase()}"
+      data = Uri.parse("sms-gateway://$kind/$jobId/$part")
+      putExtra(EXTRA_JOB_ID, jobId)
+      putExtra(EXTRA_PART, part)
+    }
+    return PendingIntent.getBroadcast(
+      reactContext,
+      0,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+  }
+
+  private fun awaitSmsSubmission(jobId: String, promise: Promise) {
+    val handler = Handler(Looper.getMainLooper())
+    val deadline = System.currentTimeMillis() + 60_000
+    val checkResult = object : Runnable {
+      override fun run() {
+        val result = SmsReportStore.sentResult(reactContext, jobId)
+        if (result != null) {
+          if (result == Activity.RESULT_OK) {
+            promise.resolve(null)
+          } else {
+            promise.reject(
+              "SMS_SEND_FAILED",
+              "Android could not submit the SMS (result $result).",
+            )
+          }
+        } else if (System.currentTimeMillis() >= deadline) {
+          promise.reject(
+            "SMS_SEND_UNCONFIRMED",
+            "Android did not confirm whether it submitted the SMS.",
+          )
+        } else {
+          handler.postDelayed(this, 200)
+        }
+      }
+    }
+    handler.post(checkResult)
+  }
+
+  @ReactMethod
+  fun getPendingDeliveryReports(promise: Promise) {
+    try {
+      val reports = Arguments.createArray()
+      SmsReportStore.pendingDeliveryReports(reactContext).forEach { (jobId, delivered) ->
+        reports.pushMap(
+          Arguments.createMap().apply {
+            putString("jobId", jobId)
+            putString("status", if (delivered) "delivered" else "not-delivered")
+          },
+        )
+      }
+      promise.resolve(reports)
+    } catch (error: Exception) {
+      promise.reject("SMS_DELIVERY_REPORTS_UNAVAILABLE", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun acknowledgeDeliveryReport(jobId: String, promise: Promise) {
+    try {
+      SmsReportStore.acknowledgeDelivery(reactContext, jobId)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("SMS_DELIVERY_REPORT_ACK_FAILED", error.message, error)
+    }
+  }
+
+  @ReactMethod
   fun inspectCertificate(urlText: String, promise: Promise) {
     var connection: HttpsURLConnection? = null
     try {
@@ -119,7 +254,9 @@ class GatewaySecurityModule(
       require(pin.matches(Regex("^sha256/[A-Za-z0-9+/]{43}=$"))) {
         "Certificate pin is invalid"
       }
-      require(method == "GET" || method == "POST") { "Unsupported gateway method" }
+      require(method == "GET" || method == "POST" || method == "DELETE") {
+        "Unsupported gateway method"
+      }
 
       val expectedPin = Base64.decode(pin.substringAfter('/'), Base64.NO_WRAP)
       // The self-signed gateway is trusted only when its key matches the user-approved pin.
@@ -179,6 +316,7 @@ class GatewaySecurityModule(
           require(!jsonBody.isNullOrBlank()) { "POST requests require a JSON body" }
           requestBuilder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
         }
+        "DELETE" -> requestBuilder.delete()
       }
 
       client.newCall(requestBuilder.build()).enqueue(

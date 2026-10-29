@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopGatewayStatus } from '@sms-gateway/shared-contracts';
 import type { SpreadsheetUpload } from './upload-storage';
-import type { SpreadsheetSheet } from './spreadsheet-reader';
+import type {
+  SpreadsheetSheet,
+} from './spreadsheet-reader';
 
 interface DesktopPairingQrCode {
   address: string;
@@ -33,4 +35,20 @@ contextBridge.exposeInMainWorld('smsGateway', {
     ipcRenderer.invoke('uploads:select-spreadsheet'),
   readSpreadsheetSheets: (uploadId: string): Promise<SpreadsheetSheet[]> =>
     ipcRenderer.invoke('uploads:read-sheets', uploadId),
+  enqueueSpreadsheetCampaign: (input: {
+    uploadId: string;
+    sheetNumber: number;
+    phoneHeader: string;
+    template: string;
+    deviceId: string;
+  }): Promise<{ enqueued: number; queueStatus: import('@sms-gateway/shared-contracts').SmsQueueStatus }> =>
+    ipcRenderer.invoke('gateway:enqueue-spreadsheet-campaign', input),
+  getSmsQueueStatus: (): Promise<import('@sms-gateway/shared-contracts').SmsQueueStatus> =>
+    ipcRenderer.invoke('gateway:get-sms-queue-status'),
+  getSmsJobs: (): Promise<import('@sms-gateway/shared-contracts').SmsJob[]> =>
+    ipcRenderer.invoke('gateway:get-sms-jobs'),
+  retrySmsJob: (jobId: string): Promise<import('@sms-gateway/shared-contracts').SmsJob> =>
+    ipcRenderer.invoke('gateway:retry-sms-job', jobId),
+  deleteFailedSmsJob: (jobId: string): Promise<import('@sms-gateway/shared-contracts').DeleteSmsJobResponse> =>
+    ipcRenderer.invoke('gateway:delete-failed-sms-job', jobId),
 });
