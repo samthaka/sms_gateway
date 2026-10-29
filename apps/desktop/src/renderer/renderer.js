@@ -1,4 +1,6 @@
 const statusElement = document.getElementById('gateway-status');
+const connectionStatusElement = document.getElementById('connection-gateway-status');
+const connectionSummaryElement = document.getElementById('connection-summary');
 const detailsElement = document.getElementById('gateway-details');
 const addressesElement = document.getElementById('gateway-addresses');
 const pairingExpiryElement = document.getElementById('pairing-expiry');
@@ -15,6 +17,9 @@ const templateFieldsElement = document.getElementById('template-fields');
 const templatePreviewElement = document.getElementById('template-preview');
 const phoneColumnSelect = document.getElementById('phone-column');
 const sendDeviceSelect = document.getElementById('send-device');
+const sendDeviceDropdown = document.getElementById('send-device-dropdown');
+const sendDeviceTrigger = document.getElementById('send-device-trigger');
+const sendDeviceOptions = document.getElementById('send-device-options');
 const queueCampaignButton = document.getElementById('queue-campaign');
 const campaignMessageElement = document.getElementById('campaign-message');
 const queueStatusElement = document.getElementById('queue-status');
@@ -23,10 +28,39 @@ const failedJobsElement = document.getElementById('failed-jobs');
 const sentJobsElement = document.getElementById('sent-jobs');
 const refreshQueueButton = document.getElementById('refresh-queue');
 const uploadsPageElement = document.getElementById('uploads-page');
+const spreadsheetsPageElement = document.getElementById('spreadsheets-page');
 const connectionPageElement = document.getElementById('connection-page');
 const openConnectionButton = document.getElementById('open-connection');
-const backToUploadsButton = document.getElementById('back-to-uploads');
+const dashboardNavButton = document.getElementById('dashboard-nav');
+const spreadsheetsNavButton = document.getElementById('spreadsheets-nav');
 let activeSheets = [];
+
+const themeToggleButton = document.getElementById('theme-toggle');
+const themeSunIcon = themeToggleButton?.querySelector('.theme-icon-sun');
+const themeMoonIcon = themeToggleButton?.querySelector('.theme-icon-moon');
+const savedTheme = window.localStorage.getItem('sms-gateway-theme') === 'dark' ? 'dark' : 'light';
+
+function updateThemeToggle(theme) {
+  const isDark = theme === 'dark';
+  document.body.setAttribute('data-theme', theme);
+  window.localStorage.setItem('sms-gateway-theme', theme);
+  if (themeSunIcon) {
+    themeSunIcon.hidden = isDark;
+  }
+  if (themeMoonIcon) {
+    themeMoonIcon.hidden = !isDark;
+  }
+  themeToggleButton?.setAttribute('aria-label', `Switch to ${isDark ? 'light' : 'dark'} theme`);
+  themeToggleButton?.setAttribute('title', `Switch to ${isDark ? 'light' : 'dark'} theme`);
+}
+
+themeToggleButton?.addEventListener('click', () => {
+  const nextTheme = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  updateThemeToggle(nextTheme);
+});
+
+updateThemeToggle(savedTheme);
+
 const templateStorageKey = 'sms-gateway-message-template';
 templateEditor.value = window.localStorage.getItem(templateStorageKey) ?? '';
 
@@ -43,6 +77,107 @@ function updateCampaignAvailability() {
     sendDeviceSelect.value
   );
 }
+
+function closeSendDeviceDropdown() {
+  sendDeviceDropdown.classList.remove('is-open');
+  sendDeviceOptions.hidden = true;
+  sendDeviceTrigger.setAttribute('aria-expanded', 'false');
+}
+
+function syncSendDeviceDropdown() {
+  const isOpen = !sendDeviceOptions.hidden;
+  sendDeviceTrigger.textContent =
+    sendDeviceSelect.selectedOptions[0]?.textContent ?? 'Choose a paired phone';
+  sendDeviceOptions.replaceChildren();
+
+  for (const [index, option] of [...sendDeviceSelect.options].entries()) {
+    const item = document.createElement('button');
+    item.className = 'custom-select-option';
+    item.type = 'button';
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(option.value === sendDeviceSelect.value));
+    item.dataset.optionIndex = String(index);
+    item.textContent = option.textContent;
+    item.addEventListener('click', () => {
+      sendDeviceSelect.value = option.value;
+      sendDeviceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      syncSendDeviceDropdown();
+      closeSendDeviceDropdown();
+      sendDeviceTrigger.focus();
+    });
+    sendDeviceOptions.append(item);
+  }
+
+  if (isOpen) {
+    sendDeviceOptions.children[sendDeviceSelect.selectedIndex]?.focus();
+  }
+}
+
+function openSendDeviceDropdown() {
+  sendDeviceDropdown.classList.add('is-open');
+  sendDeviceOptions.hidden = false;
+  sendDeviceTrigger.setAttribute('aria-expanded', 'true');
+  const selectedOption = sendDeviceOptions.children[sendDeviceSelect.selectedIndex];
+  (selectedOption ?? sendDeviceOptions.firstElementChild)?.focus();
+}
+
+sendDeviceTrigger.addEventListener('click', () => {
+  if (sendDeviceOptions.hidden) {
+    openSendDeviceDropdown();
+  } else {
+    closeSendDeviceDropdown();
+  }
+});
+
+sendDeviceTrigger.addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    openSendDeviceDropdown();
+  }
+});
+
+sendDeviceOptions.addEventListener('keydown', (event) => {
+  const options = [...sendDeviceOptions.querySelectorAll('[role="option"]')];
+  const currentIndex = options.indexOf(document.activeElement);
+  let nextIndex;
+  if (event.key === 'ArrowDown') {
+    nextIndex = Math.min(currentIndex + 1, options.length - 1);
+  } else if (event.key === 'ArrowUp') {
+    nextIndex = Math.max(currentIndex - 1, 0);
+  } else if (event.key === 'Home') {
+    nextIndex = 0;
+  } else if (event.key === 'End') {
+    nextIndex = options.length - 1;
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSendDeviceDropdown();
+    sendDeviceTrigger.focus();
+    return;
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    document.activeElement.click();
+    return;
+  } else {
+    return;
+  }
+
+  event.preventDefault();
+  options[nextIndex]?.focus();
+});
+
+sendDeviceDropdown.addEventListener('focusout', (event) => {
+  if (!sendDeviceDropdown.contains(event.relatedTarget)) {
+    closeSendDeviceDropdown();
+  }
+});
+
+document.addEventListener('click', (event) => {
+  if (!sendDeviceDropdown.contains(event.target)) {
+    closeSendDeviceDropdown();
+  }
+});
+
+syncSendDeviceDropdown();
 
 function renderPhoneColumnOptions(sheet) {
   phoneColumnSelect.replaceChildren();
@@ -433,16 +568,26 @@ function refreshQueueStatus() {
 
 refreshQueueButton.addEventListener('click', refreshQueueStatus);
 
-openConnectionButton.addEventListener('click', () => {
-  uploadsPageElement.hidden = true;
-  connectionPageElement.hidden = false;
-  backToUploadsButton.focus();
+function showPage(page) {
+  uploadsPageElement.hidden = page !== 'dashboard';
+  spreadsheetsPageElement.hidden = page !== 'spreadsheets';
+  connectionPageElement.hidden = page !== 'connections';
+
+  for (const button of document.querySelectorAll('.nav-item[data-view]')) {
+    button.classList.toggle('active', button.dataset.view === page);
+  }
+}
+
+dashboardNavButton.addEventListener('click', () => {
+  showPage('dashboard');
 });
 
-backToUploadsButton.addEventListener('click', () => {
-  connectionPageElement.hidden = true;
-  uploadsPageElement.hidden = false;
-  openConnectionButton.focus();
+spreadsheetsNavButton.addEventListener('click', () => {
+  showPage('spreadsheets');
+});
+
+openConnectionButton.addEventListener('click', () => {
+  showPage('connections');
 });
 
 function renderUploads(uploads) {
@@ -522,8 +667,13 @@ window.smsGateway
   });
 
 function renderStatus(status) {
+  statusElement.classList.remove('error');
+  connectionStatusElement.classList.remove('error');
   statusElement.classList.add('ready');
-  statusElement.lastChild.textContent = 'Gateway is running';
+  connectionStatusElement.classList.add('ready');
+  statusElement.querySelector('.status-label').textContent = 'Connected';
+  connectionStatusElement.querySelector('.connection-status-label').textContent = 'Gateway is running';
+  connectionSummaryElement.textContent = 'SMS Gateway is connected via Local API.';
   detailsElement.hidden = false;
   pairingExpiryElement.textContent =
     status.pairingCode === 'expired'
@@ -550,6 +700,7 @@ function renderStatus(status) {
     : status.pairedDevices.length === 1
     ? status.pairedDevices[0].id
     : '';
+  syncSendDeviceDropdown();
   updateCampaignAvailability();
 
   if (status.addresses.length === 0) {
@@ -593,6 +744,7 @@ function renderStatus(status) {
     const label = document.createElement('span');
     label.className = 'device-name';
     label.textContent = `${device.name} · Paired on ${new Date(device.pairedAt).toLocaleString()}`;
+    label.title = label.textContent;
     const revoke = document.createElement('button');
     revoke.type = 'button';
     revoke.textContent = 'Revoke';
@@ -616,7 +768,13 @@ window.smsGateway
   .then(renderStatus)
   .catch((error) => {
     statusElement.classList.remove('ready');
-    statusElement.lastChild.textContent = `Gateway failed to start: ${error.message}`;
+    statusElement.classList.add('error');
+    connectionStatusElement.classList.remove('ready');
+    connectionStatusElement.classList.add('error');
+    statusElement.querySelector('.status-label').textContent = 'Gateway unavailable';
+    connectionStatusElement.querySelector('.connection-status-label').textContent =
+      `Gateway failed to start: ${error.message}`;
+    connectionSummaryElement.textContent = 'Unable to connect to the local SMS gateway.';
   });
 
 window.setInterval(() => {
@@ -625,7 +783,13 @@ window.setInterval(() => {
     .then(renderStatus)
     .catch((error) => {
       statusElement.classList.remove('ready');
-      statusElement.lastChild.textContent = `Gateway status unavailable: ${error.message}`;
+      statusElement.classList.add('error');
+      connectionStatusElement.classList.remove('ready');
+      connectionStatusElement.classList.add('error');
+      statusElement.querySelector('.status-label').textContent = 'Gateway unavailable';
+      connectionStatusElement.querySelector('.connection-status-label').textContent =
+        `Gateway status unavailable: ${error.message}`;
+      connectionSummaryElement.textContent = 'Unable to connect to the local SMS gateway.';
     });
 }, 5000);
 
