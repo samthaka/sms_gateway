@@ -97,6 +97,18 @@ function renderApp(): ReactTestRenderer.ReactTestRenderer {
   return renderer;
 }
 
+function openConnections(renderer: ReactTestRenderer.ReactTestRenderer) {
+  ReactTestRenderer.act(() => {
+    renderer.root.findByProps({ testID: 'tab-connections' }).props.onPress();
+  });
+}
+
+function openMessages(renderer: ReactTestRenderer.ReactTestRenderer) {
+  ReactTestRenderer.act(() => {
+    renderer.root.findByProps({ testID: 'tab-messages' }).props.onPress();
+  });
+}
+
 function createClientMock(overrides: Record<string, unknown> = {}) {
   return {
     getHealth: jest.fn().mockResolvedValue({ serverId: SERVER_ID }),
@@ -150,6 +162,7 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
   jest.mocked(createGatewayClient).mockReturnValue(createClientMock({ pairDevice }));
 
   const renderer = renderApp();
+  openConnections(renderer);
   await ReactTestRenderer.act(async () => {
     renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
@@ -167,6 +180,9 @@ test('scans a QR code, verifies the pinned gateway identity, and pairs', async (
   });
   expect(setSecureValue).toHaveBeenCalledWith('paired-gateway', expect.stringContaining('opaque-test-token'));
   expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'Device paired')).toBe(true);
+  ReactTestRenderer.act(() => {
+    renderer.root.findByProps({ testID: 'tab-dashboard' }).props.onPress();
+  });
   expect(renderer.root.findByProps({ testID: 'send-queued-messages-button' }).props.disabled).toBe(true);
 });
 
@@ -210,6 +226,7 @@ test('shows pending and failed jobs and lets the user retry a failed message', a
   );
 
   const renderer = renderApp();
+  openConnections(renderer);
   await ReactTestRenderer.act(async () => {
     renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
@@ -218,6 +235,7 @@ test('shows pending and failed jobs and lets the user retry a failed message', a
     camera.props.codeScanner.onCodeScanned([{ value: JSON.stringify(PAIRING_QR) }]);
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
+  openMessages(renderer);
 
   expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'Hello')).toBe(true);
   expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'SIM unavailable')).toBe(true);
@@ -277,6 +295,7 @@ test('records and displays carrier delivery reports for sent messages', async ()
   );
 
   const renderer = renderApp();
+  openConnections(renderer);
   await ReactTestRenderer.act(async () => {
     renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
@@ -285,6 +304,7 @@ test('records and displays carrier delivery reports for sent messages', async ()
     camera.props.codeScanner.onCodeScanned([{ value: JSON.stringify(PAIRING_QR) }]);
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   });
+  openMessages(renderer);
 
   expect(updateSmsDeliveryReport).toHaveBeenCalledWith('opaque-test-token', sentJob.id, { status: 'delivered' });
   expect(acknowledgeDeliveryReport).toHaveBeenCalledWith(sentJob.id);
@@ -306,6 +326,7 @@ test('does not send the pairing code when the server identity mismatches', async
   );
 
   const renderer = renderApp();
+  openConnections(renderer);
   await ReactTestRenderer.act(async () => {
     renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
   });
@@ -317,4 +338,25 @@ test('does not send the pairing code when the server identity mismatches', async
 
   expect(pairDevice).not.toHaveBeenCalled();
   expect(setSecureValue).not.toHaveBeenCalledWith('paired-gateway', expect.any(String));
+});
+
+test('switches between app sections and light and dark themes', () => {
+  const renderer = renderApp();
+
+  expect(renderer.root.findByProps({ testID: 'tab-dashboard' }).props.accessibilityState.selected).toBe(true);
+  ReactTestRenderer.act(() => {
+    renderer.root.findByProps({ testID: 'tab-settings' }).props.onPress();
+  });
+  expect(renderer.root.findByProps({ testID: 'dark-theme-button' }).props.accessibilityState.selected).toBe(false);
+
+  ReactTestRenderer.act(() => {
+    renderer.root.findByProps({ testID: 'dark-theme-button' }).props.onPress();
+  });
+  expect(renderer.root.findByProps({ testID: 'dark-theme-button' }).props.accessibilityState.selected).toBe(true);
+  expect(renderer.root.findByProps({ testID: 'light-theme-button' }).props.accessibilityState.selected).toBe(false);
+
+  ReactTestRenderer.act(() => {
+    renderer.root.findByProps({ testID: 'tab-messages' }).props.onPress();
+  });
+  expect(renderer.root.findAllByType(Text).some((text) => text.props.children === 'No device connected')).toBe(true);
 });
