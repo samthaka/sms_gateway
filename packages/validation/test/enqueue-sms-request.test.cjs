@@ -21,3 +21,13 @@ test('rejects a blank phone number', () => {
 
   assert.equal(result.success, false);
 });
+
+test('rejects phone numbers that cannot be normalized to a dialable number', () => {
+  const result = enqueueSmsRequestSchema.safeParse({
+    phoneNumber: '+1 (555) 123-4567',
+    message: 'Hello',
+    idempotencyKey: 'request-1',
+  });
+
+  assert.equal(result.success, false);
+});

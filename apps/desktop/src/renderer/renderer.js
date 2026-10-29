@@ -1,4 +1,6 @@
 const statusElement = document.getElementById('gateway-status');
+const connectionStatusElement = document.getElementById('connection-gateway-status');
+const connectionSummaryElement = document.getElementById('connection-summary');
 const detailsElement = document.getElementById('gateway-details');
 const addressesElement = document.getElementById('gateway-addresses');
 const pairingExpiryElement = document.getElementById('pairing-expiry');
@@ -13,26 +15,203 @@ const sheetSelectContainer = document.getElementById('sheet-select-container');
 const templateEditor = document.getElementById('message-template');
 const templateFieldsElement = document.getElementById('template-fields');
 const templatePreviewElement = document.getElementById('template-preview');
+const phoneColumnSelect = document.getElementById('phone-column');
+const sendDeviceSelect = document.getElementById('send-device');
+const sendDeviceDropdown = document.getElementById('send-device-dropdown');
+const sendDeviceTrigger = document.getElementById('send-device-trigger');
+const sendDeviceOptions = document.getElementById('send-device-options');
+const queueCampaignButton = document.getElementById('queue-campaign');
+const campaignMessageElement = document.getElementById('campaign-message');
+const queueStatusElement = document.getElementById('queue-status');
+const pendingJobsElement = document.getElementById('pending-jobs');
+const failedJobsElement = document.getElementById('failed-jobs');
+const sentJobsElement = document.getElementById('sent-jobs');
+const refreshQueueButton = document.getElementById('refresh-queue');
 const uploadsPageElement = document.getElementById('uploads-page');
+const spreadsheetsPageElement = document.getElementById('spreadsheets-page');
 const connectionPageElement = document.getElementById('connection-page');
 const openConnectionButton = document.getElementById('open-connection');
-const backToUploadsButton = document.getElementById('back-to-uploads');
+const dashboardNavButton = document.getElementById('dashboard-nav');
+const spreadsheetsNavButton = document.getElementById('spreadsheets-nav');
 let activeSheets = [];
+
+const themeToggleButton = document.getElementById('theme-toggle');
+const themeSunIcon = themeToggleButton?.querySelector('.theme-icon-sun');
+const themeMoonIcon = themeToggleButton?.querySelector('.theme-icon-moon');
+const savedTheme = window.localStorage.getItem('sms-gateway-theme') === 'dark' ? 'dark' : 'light';
+
+function updateThemeToggle(theme) {
+  const isDark = theme === 'dark';
+  document.body.setAttribute('data-theme', theme);
+  window.localStorage.setItem('sms-gateway-theme', theme);
+  if (themeSunIcon) {
+    themeSunIcon.hidden = isDark;
+  }
+  if (themeMoonIcon) {
+    themeMoonIcon.hidden = !isDark;
+  }
+  themeToggleButton?.setAttribute('aria-label', `Switch to ${isDark ? 'light' : 'dark'} theme`);
+  themeToggleButton?.setAttribute('title', `Switch to ${isDark ? 'light' : 'dark'} theme`);
+}
+
+themeToggleButton?.addEventListener('click', () => {
+  const nextTheme = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  updateThemeToggle(nextTheme);
+});
+
+updateThemeToggle(savedTheme);
+
 const templateStorageKey = 'sms-gateway-message-template';
 templateEditor.value = window.localStorage.getItem(templateStorageKey) ?? '';
 
-function renderTemplatePreview() {
-  const sheet = activeSheets.find(
-    (candidate) => candidate.number === Number(sheetSelect.value),
+function selectedSheet() {
+  return activeSheets.find((candidate) => candidate.number === Number(sheetSelect.value));
+}
+
+function updateCampaignAvailability() {
+  queueCampaignButton.disabled = !(
+    spreadsheetSelect.value &&
+    selectedSheet() &&
+    phoneColumnSelect.value &&
+    templateEditor.value.trim() &&
+    sendDeviceSelect.value
   );
+}
+
+function closeSendDeviceDropdown() {
+  sendDeviceDropdown.classList.remove('is-open');
+  sendDeviceOptions.hidden = true;
+  sendDeviceTrigger.setAttribute('aria-expanded', 'false');
+}
+
+function syncSendDeviceDropdown() {
+  const isOpen = !sendDeviceOptions.hidden;
+  sendDeviceTrigger.textContent =
+    sendDeviceSelect.selectedOptions[0]?.textContent ?? 'Choose a paired phone';
+  sendDeviceOptions.replaceChildren();
+
+  for (const [index, option] of [...sendDeviceSelect.options].entries()) {
+    const item = document.createElement('button');
+    item.className = 'custom-select-option';
+    item.type = 'button';
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(option.value === sendDeviceSelect.value));
+    item.dataset.optionIndex = String(index);
+    item.textContent = option.textContent;
+    item.addEventListener('click', () => {
+      sendDeviceSelect.value = option.value;
+      sendDeviceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      syncSendDeviceDropdown();
+      closeSendDeviceDropdown();
+      sendDeviceTrigger.focus();
+    });
+    sendDeviceOptions.append(item);
+  }
+
+  if (isOpen) {
+    sendDeviceOptions.children[sendDeviceSelect.selectedIndex]?.focus();
+  }
+}
+
+function openSendDeviceDropdown() {
+  sendDeviceDropdown.classList.add('is-open');
+  sendDeviceOptions.hidden = false;
+  sendDeviceTrigger.setAttribute('aria-expanded', 'true');
+  const selectedOption = sendDeviceOptions.children[sendDeviceSelect.selectedIndex];
+  (selectedOption ?? sendDeviceOptions.firstElementChild)?.focus();
+}
+
+sendDeviceTrigger.addEventListener('click', () => {
+  if (sendDeviceOptions.hidden) {
+    openSendDeviceDropdown();
+  } else {
+    closeSendDeviceDropdown();
+  }
+});
+
+sendDeviceTrigger.addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    openSendDeviceDropdown();
+  }
+});
+
+sendDeviceOptions.addEventListener('keydown', (event) => {
+  const options = [...sendDeviceOptions.querySelectorAll('[role="option"]')];
+  const currentIndex = options.indexOf(document.activeElement);
+  let nextIndex;
+  if (event.key === 'ArrowDown') {
+    nextIndex = Math.min(currentIndex + 1, options.length - 1);
+  } else if (event.key === 'ArrowUp') {
+    nextIndex = Math.max(currentIndex - 1, 0);
+  } else if (event.key === 'Home') {
+    nextIndex = 0;
+  } else if (event.key === 'End') {
+    nextIndex = options.length - 1;
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSendDeviceDropdown();
+    sendDeviceTrigger.focus();
+    return;
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    document.activeElement.click();
+    return;
+  } else {
+    return;
+  }
+
+  event.preventDefault();
+  options[nextIndex]?.focus();
+});
+
+sendDeviceDropdown.addEventListener('focusout', (event) => {
+  if (!sendDeviceDropdown.contains(event.relatedTarget)) {
+    closeSendDeviceDropdown();
+  }
+});
+
+document.addEventListener('click', (event) => {
+  if (!sendDeviceDropdown.contains(event.target)) {
+    closeSendDeviceDropdown();
+  }
+});
+
+syncSendDeviceDropdown();
+
+function renderPhoneColumnOptions(sheet) {
+  phoneColumnSelect.replaceChildren();
+  const promptOption = document.createElement('option');
+  promptOption.value = '';
+  promptOption.textContent = sheet ? 'Choose a phone-number column' : 'Choose a sheet first';
+  phoneColumnSelect.append(promptOption);
+  if (sheet) {
+    let suggestedHeader = '';
+    for (const header of sheet.headers) {
+      const option = document.createElement('option');
+      option.value = header;
+      option.textContent = header;
+      phoneColumnSelect.append(option);
+      if (!suggestedHeader && /phone|mobile|telephone|cell/i.test(header)) {
+        suggestedHeader = header;
+      }
+    }
+    phoneColumnSelect.value = suggestedHeader;
+  }
+  updateCampaignAvailability();
+}
+
+function renderTemplatePreview() {
+  const sheet = selectedSheet();
   if (!sheet || sheet.sample.length === 0 || !templateEditor.value) {
     templatePreviewElement.textContent = !spreadsheetSelect.value
       ? 'Select a spreadsheet to preview the message.'
       : activeSheets.length > 1 && !sheet
-        ? 'Choose a sheet number to preview the message.'
-        : !templateEditor.value
-          ? 'Enter a message to preview it.'
-          : 'No sample data row is available for this sheet.';
+      ? 'Choose a sheet number to preview the message.'
+      : !templateEditor.value
+      ? 'Enter a message to preview it.'
+      : 'No sample data row is available for this sheet.';
+    updateCampaignAvailability();
     return;
   }
 
@@ -41,6 +220,7 @@ function renderTemplatePreview() {
     preview = preview.split(`{${header}}`).join(value);
   }
   templatePreviewElement.textContent = preview;
+  updateCampaignAvailability();
 }
 
 function renderTemplateFields(sheet) {
@@ -51,9 +231,10 @@ function renderTemplateFields(sheet) {
     message.textContent = !spreadsheetSelect.value
       ? 'Select a spreadsheet to load its headers.'
       : activeSheets.length > 1 && !sheet
-        ? 'Choose a sheet number to load its headers.'
-        : 'No column headers were found on this sheet.';
+      ? 'Choose a sheet number to load its headers.'
+      : 'No column headers were found on this sheet.';
     templateFieldsElement.append(message);
+    renderPhoneColumnOptions(sheet);
     renderTemplatePreview();
     return;
   }
@@ -74,6 +255,7 @@ function renderTemplateFields(sheet) {
     });
     templateFieldsElement.append(button);
   }
+  renderPhoneColumnOptions(sheet);
   renderTemplatePreview();
 }
 
@@ -111,8 +293,7 @@ async function loadSpreadsheet(uploadId) {
     renderTemplateFields(selectedSheet);
   } catch (error) {
     if (spreadsheetSelect.value === uploadId) {
-      templateFieldsElement.textContent =
-        `Could not read spreadsheet headers: ${error.message}`;
+      templateFieldsElement.textContent = `Could not read spreadsheet headers: ${error.message}`;
     }
   }
 }
@@ -129,9 +310,7 @@ async function renderActiveSpreadsheetOptions(uploads, selectedUploadId) {
     option.textContent = upload.name;
     spreadsheetSelect.append(option);
   }
-  const selectedId = uploads.some((upload) => upload.id === selectedUploadId)
-    ? selectedUploadId
-    : uploads[0]?.id ?? '';
+  const selectedId = uploads.some((upload) => upload.id === selectedUploadId) ? selectedUploadId : uploads[0]?.id ?? '';
   spreadsheetSelect.value = selectedId;
   await loadSpreadsheet(selectedId);
 }
@@ -141,9 +320,7 @@ spreadsheetSelect.addEventListener('change', () => {
 });
 
 sheetSelect.addEventListener('change', () => {
-  const sheet = activeSheets.find(
-    (candidate) => candidate.number === Number(sheetSelect.value),
-  );
+  const sheet = activeSheets.find((candidate) => candidate.number === Number(sheetSelect.value));
   renderTemplateFields(sheet);
 });
 
@@ -152,16 +329,265 @@ templateEditor.addEventListener('input', () => {
   renderTemplatePreview();
 });
 
-openConnectionButton.addEventListener('click', () => {
-  uploadsPageElement.hidden = true;
-  connectionPageElement.hidden = false;
-  backToUploadsButton.focus();
+phoneColumnSelect.addEventListener('change', updateCampaignAvailability);
+sendDeviceSelect.addEventListener('change', updateCampaignAvailability);
+
+queueCampaignButton.addEventListener('click', async () => {
+  const sheet = selectedSheet();
+  if (
+    !sheet ||
+    !spreadsheetSelect.value ||
+    !phoneColumnSelect.value ||
+    !sendDeviceSelect.value ||
+    !templateEditor.value.trim()
+  ) {
+    return;
+  }
+  queueCampaignButton.disabled = true;
+  campaignMessageElement.textContent = '';
+  try {
+    const result = await window.smsGateway.enqueueSpreadsheetCampaign({
+      uploadId: spreadsheetSelect.value,
+      sheetNumber: sheet.number,
+      phoneHeader: phoneColumnSelect.value,
+      template: templateEditor.value,
+      deviceId: sendDeviceSelect.value,
+    });
+    campaignMessageElement.textContent =
+      `Queued ${result.enqueued} message${result.enqueued === 1 ? '' : 's'}. ` +
+      'Keep the selected phone app open; it will ask before sending.';
+    renderQueueStatus(result.queueStatus);
+    void refreshQueueStatus();
+  } catch (error) {
+    campaignMessageElement.textContent = `Could not queue messages: ${error.message}`;
+  } finally {
+    updateCampaignAvailability();
+  }
 });
 
-backToUploadsButton.addEventListener('click', () => {
-  connectionPageElement.hidden = true;
-  uploadsPageElement.hidden = false;
-  openConnectionButton.focus();
+function renderQueueStatus(status) {
+  queueStatusElement.textContent =
+    `Queue: ${status.queued} waiting, ${status.sending} sending, ` +
+    `${status.sent} submitted to Android, ${status.failed} failed.`;
+}
+
+function dateKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function dateGroupLabel(timestamp) {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (dateKey(date) === dateKey(today)) {
+    return 'Today';
+  }
+  if (dateKey(date) === dateKey(yesterday)) {
+    return 'Yesterday';
+  }
+  return date.toLocaleDateString('en-US');
+}
+
+function groupJobsByDate(jobs, getTimestamp) {
+  const groups = new Map();
+  const sortedJobs = [...jobs].sort(
+    (left, right) => new Date(getTimestamp(right)).getTime() - new Date(getTimestamp(left)).getTime(),
+  );
+  for (const job of sortedJobs) {
+    const timestamp = getTimestamp(job);
+    const key = dateKey(new Date(timestamp));
+    if (!groups.has(key)) {
+      groups.set(key, { label: dateGroupLabel(timestamp), jobs: [] });
+    }
+    groups.get(key).jobs.push(job);
+  }
+  return [...groups.values()];
+}
+
+function appendDateHeading(list, label) {
+  const heading = document.createElement('li');
+  heading.className = 'job-date-heading';
+  heading.textContent = label;
+  list.append(heading);
+}
+
+function renderSmsJobs(jobs) {
+  const pending = jobs.filter((job) => job.status === 'queued');
+  const failed = jobs.filter((job) => job.status === 'failed');
+  const sent = jobs.filter((job) => job.status === 'sent');
+  pendingJobsElement.replaceChildren();
+  failedJobsElement.replaceChildren();
+  sentJobsElement.replaceChildren();
+
+  if (pending.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = 'No messages are waiting.';
+    pendingJobsElement.append(empty);
+  }
+  for (const group of groupJobsByDate(pending, (job) => job.createdAt)) {
+    appendDateHeading(pendingJobsElement, group.label);
+    for (const job of group.jobs) {
+      const item = document.createElement('li');
+      item.className = 'job-row';
+      const details = document.createElement('span');
+      details.className = 'job-details';
+      const recipient = document.createElement('strong');
+      recipient.textContent = job.phoneNumber;
+      const message = document.createElement('span');
+      message.textContent = job.message;
+      const created = document.createElement('span');
+      created.className = 'muted';
+      created.textContent = `Queued ${new Date(job.createdAt).toLocaleString()}`;
+      details.append(recipient, message, created);
+      item.append(details);
+      pendingJobsElement.append(item);
+    }
+  }
+
+  if (failed.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = 'No failed attempts.';
+    failedJobsElement.append(empty);
+  }
+  for (const group of groupJobsByDate(failed, (job) => job.updatedAt)) {
+    appendDateHeading(failedJobsElement, group.label);
+    for (const job of group.jobs) {
+      const item = document.createElement('li');
+      item.className = 'job-row';
+      const details = document.createElement('span');
+      details.className = 'job-details';
+      const recipient = document.createElement('strong');
+      recipient.textContent = job.phoneNumber;
+      const message = document.createElement('span');
+      message.textContent = job.message;
+      const reason = document.createElement('span');
+      reason.className = 'muted';
+      reason.textContent = job.failureReason ?? 'The message could not be submitted.';
+      const updated = document.createElement('span');
+      updated.className = 'muted';
+      updated.textContent = `Failed ${new Date(job.updatedAt).toLocaleString()}`;
+      details.append(recipient, message, reason, updated);
+
+      const actions = document.createElement('span');
+      actions.className = 'job-actions';
+      const retry = document.createElement('button');
+      retry.className = 'retry-job-button';
+      retry.type = 'button';
+      retry.textContent = 'Retry';
+      retry.setAttribute('aria-label', `Retry message to ${job.phoneNumber}`);
+      retry.addEventListener('click', async () => {
+        retry.disabled = true;
+        try {
+          await window.smsGateway.retrySmsJob(job.id);
+          await refreshQueueStatus();
+        } catch (error) {
+          window.alert(`Could not retry message: ${error.message}`);
+          retry.disabled = false;
+        }
+      });
+      const remove = document.createElement('button');
+      remove.className = 'delete-job-button';
+      remove.type = 'button';
+      remove.textContent = 'Delete';
+      remove.setAttribute('aria-label', `Delete failed message to ${job.phoneNumber}`);
+      remove.addEventListener('click', async () => {
+        if (!window.confirm(`Permanently delete the failed message to ${job.phoneNumber}?`)) {
+          return;
+        }
+        remove.disabled = true;
+        try {
+          await window.smsGateway.deleteFailedSmsJob(job.id);
+          await refreshQueueStatus();
+        } catch (error) {
+          window.alert(`Could not delete failed message: ${error.message}`);
+          remove.disabled = false;
+        }
+      });
+      actions.append(retry, remove);
+      item.append(details, actions);
+      failedJobsElement.append(item);
+    }
+  }
+
+  if (sent.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = 'No messages have been sent yet.';
+    sentJobsElement.append(empty);
+  }
+  for (const group of groupJobsByDate(sent, (job) => job.sentAt ?? job.updatedAt)) {
+    appendDateHeading(sentJobsElement, group.label);
+    for (const job of group.jobs) {
+      const item = document.createElement('li');
+      item.className = 'job-row';
+      const details = document.createElement('span');
+      details.className = 'job-details';
+      const recipient = document.createElement('strong');
+      recipient.textContent = job.phoneNumber;
+      const message = document.createElement('span');
+      message.textContent = job.message;
+      const status = document.createElement('span');
+      status.className = 'muted';
+      status.textContent =
+        job.deliveryStatus === 'delivered'
+          ? 'Sent · Delivered'
+          : job.deliveryStatus === 'not-delivered'
+          ? 'Sent · Not delivered'
+          : 'Sent';
+      const sentAt = document.createElement('span');
+      sentAt.className = 'muted';
+      sentAt.textContent = `Sent ${new Date(job.sentAt ?? job.updatedAt).toLocaleString()}`;
+      details.append(recipient, message, status, sentAt);
+      item.append(details);
+      sentJobsElement.append(item);
+    }
+  }
+}
+
+function refreshQueueStatus() {
+  return window.smsGateway
+    .getSmsQueueStatus()
+    .then((status) => {
+      renderQueueStatus(status);
+      return window.smsGateway.getSmsJobs();
+    })
+    .then((jobs) => {
+      renderSmsJobs(jobs);
+    })
+    .catch((error) => {
+      queueStatusElement.textContent = `Queue data unavailable: ${error.message}`;
+    });
+}
+
+refreshQueueButton.addEventListener('click', refreshQueueStatus);
+
+function showPage(page) {
+  uploadsPageElement.hidden = page !== 'dashboard';
+  spreadsheetsPageElement.hidden = page !== 'spreadsheets';
+  connectionPageElement.hidden = page !== 'connections';
+
+  for (const button of document.querySelectorAll('.nav-item[data-view]')) {
+    button.classList.toggle('active', button.dataset.view === page);
+  }
+}
+
+dashboardNavButton.addEventListener('click', () => {
+  showPage('dashboard');
+});
+
+spreadsheetsNavButton.addEventListener('click', () => {
+  showPage('spreadsheets');
+});
+
+openConnectionButton.addEventListener('click', () => {
+  showPage('connections');
 });
 
 function renderUploads(uploads) {
@@ -196,18 +622,12 @@ function renderUploads(uploads) {
       deleteButton.disabled = true;
       uploadMessageElement.textContent = '';
       try {
-        const remainingUploads =
-          await window.smsGateway.deleteSpreadsheetUpload(upload.id);
+        const remainingUploads = await window.smsGateway.deleteSpreadsheetUpload(upload.id);
         renderUploads(remainingUploads);
-        await renderActiveSpreadsheetOptions(
-          remainingUploads,
-          spreadsheetSelect.value,
-        );
-        uploadMessageElement.textContent =
-          `Permanently deleted ${upload.name} from this computer.`;
+        await renderActiveSpreadsheetOptions(remainingUploads, spreadsheetSelect.value);
+        uploadMessageElement.textContent = `Permanently deleted ${upload.name} from this computer.`;
       } catch (error) {
-        uploadMessageElement.textContent =
-          `Could not delete ${upload.name}: ${error.message}`;
+        uploadMessageElement.textContent = `Could not delete ${upload.name}: ${error.message}`;
         deleteButton.disabled = false;
       }
     });
@@ -222,38 +642,38 @@ uploadButton.addEventListener('click', async () => {
   try {
     const selection = await window.smsGateway.selectSpreadsheet();
     renderUploads(selection.uploads);
-    await renderActiveSpreadsheetOptions(
-      selection.uploads,
-      selection.selectedUploadId ?? spreadsheetSelect.value,
-    );
+    await renderActiveSpreadsheetOptions(selection.uploads, selection.selectedUploadId ?? spreadsheetSelect.value);
     if (selection.uploaded) {
       uploadMessageElement.textContent = 'Spreadsheet saved on this computer.';
       if (activeSheets.length > 1) {
-        uploadMessageElement.textContent =
-          'Spreadsheet saved. Choose the sheet number to load its headers.';
+        uploadMessageElement.textContent = 'Spreadsheet saved. Choose the sheet number to load its headers.';
       }
     }
   } catch (error) {
-    uploadMessageElement.textContent =
-      `Could not save the spreadsheet: ${error.message}`;
+    uploadMessageElement.textContent = `Could not save the spreadsheet: ${error.message}`;
   } finally {
     uploadButton.disabled = false;
   }
 });
 
-window.smsGateway.listSpreadsheetUploads()
+window.smsGateway
+  .listSpreadsheetUploads()
   .then((uploads) => {
     renderUploads(uploads);
     void renderActiveSpreadsheetOptions(uploads);
   })
   .catch((error) => {
-    uploadMessageElement.textContent =
-      `Could not load saved spreadsheets: ${error.message}`;
+    uploadMessageElement.textContent = `Could not load saved spreadsheets: ${error.message}`;
   });
 
 function renderStatus(status) {
+  statusElement.classList.remove('error');
+  connectionStatusElement.classList.remove('error');
   statusElement.classList.add('ready');
-  statusElement.lastChild.textContent = 'Gateway is running';
+  connectionStatusElement.classList.add('ready');
+  statusElement.querySelector('.status-label').textContent = 'Connected';
+  connectionStatusElement.querySelector('.connection-status-label').textContent = 'Gateway is running';
+  connectionSummaryElement.textContent = 'SMS Gateway is connected via Local API.';
   detailsElement.hidden = false;
   pairingExpiryElement.textContent =
     status.pairingCode === 'expired'
@@ -263,11 +683,29 @@ function renderStatus(status) {
   addressesElement.replaceChildren();
   pairingQrCodesElement.replaceChildren();
   devicesElement.replaceChildren();
+  const selectedDeviceId = sendDeviceSelect.value;
+  sendDeviceSelect.replaceChildren();
+  const devicePrompt = document.createElement('option');
+  devicePrompt.value = '';
+  devicePrompt.textContent = status.pairedDevices.length === 0 ? 'No paired phone available' : 'Choose a paired phone';
+  sendDeviceSelect.append(devicePrompt);
+  for (const device of status.pairedDevices) {
+    const option = document.createElement('option');
+    option.value = device.id;
+    option.textContent = device.name;
+    sendDeviceSelect.append(option);
+  }
+  sendDeviceSelect.value = status.pairedDevices.some((device) => device.id === selectedDeviceId)
+    ? selectedDeviceId
+    : status.pairedDevices.length === 1
+    ? status.pairedDevices[0].id
+    : '';
+  syncSendDeviceDropdown();
+  updateCampaignAvailability();
 
   if (status.addresses.length === 0) {
     const item = document.createElement('li');
-    item.textContent =
-      'No local network address found. Connect this computer to Wi-Fi or Ethernet.';
+    item.textContent = 'No local network address found. Connect this computer to Wi-Fi or Ethernet.';
     addressesElement.append(item);
   }
 
@@ -296,6 +734,7 @@ function renderStatus(status) {
     empty.className = 'muted';
     empty.textContent = 'No devices paired yet.';
     devicesElement.append(empty);
+    refreshQueueStatus();
     return;
   }
 
@@ -305,6 +744,7 @@ function renderStatus(status) {
     const label = document.createElement('span');
     label.className = 'device-name';
     label.textContent = `${device.name} · Paired on ${new Date(device.pairedAt).toLocaleString()}`;
+    label.title = label.textContent;
     const revoke = document.createElement('button');
     revoke.type = 'button';
     revoke.textContent = 'Revoke';
@@ -320,23 +760,36 @@ function renderStatus(status) {
     row.append(label, revoke);
     devicesElement.append(row);
   }
+  refreshQueueStatus();
 }
 
-window.smsGateway.getStatus()
+window.smsGateway
+  .getStatus()
   .then(renderStatus)
   .catch((error) => {
     statusElement.classList.remove('ready');
-    statusElement.lastChild.textContent =
+    statusElement.classList.add('error');
+    connectionStatusElement.classList.remove('ready');
+    connectionStatusElement.classList.add('error');
+    statusElement.querySelector('.status-label').textContent = 'Gateway unavailable';
+    connectionStatusElement.querySelector('.connection-status-label').textContent =
       `Gateway failed to start: ${error.message}`;
+    connectionSummaryElement.textContent = 'Unable to connect to the local SMS gateway.';
   });
 
 window.setInterval(() => {
-  window.smsGateway.getStatus()
+  window.smsGateway
+    .getStatus()
     .then(renderStatus)
     .catch((error) => {
       statusElement.classList.remove('ready');
-      statusElement.lastChild.textContent =
+      statusElement.classList.add('error');
+      connectionStatusElement.classList.remove('ready');
+      connectionStatusElement.classList.add('error');
+      statusElement.querySelector('.status-label').textContent = 'Gateway unavailable';
+      connectionStatusElement.querySelector('.connection-status-label').textContent =
         `Gateway status unavailable: ${error.message}`;
+      connectionSummaryElement.textContent = 'Unable to connect to the local SMS gateway.';
     });
 }, 5000);
 

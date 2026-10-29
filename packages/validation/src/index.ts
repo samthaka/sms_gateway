@@ -1,10 +1,55 @@
 import { z } from 'zod';
 
 export const enqueueSmsRequestSchema = z.object({
-  phoneNumber: z.string().trim().min(1).max(32),
+  phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,15}$/),
   message: z.string().min(1),
   idempotencyKey: z.string().trim().min(1).max(128),
 });
+
+export const smsJobSchema = z.object({
+  id: z.string().uuid(),
+  phoneNumber: z.string().min(1).max(32),
+  message: z.string().min(1),
+  status: z.enum(['queued', 'sending', 'sent', 'failed', 'cancelled']),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  failureReason: z.string().max(500).optional(),
+  sentAt: z.string().datetime().optional(),
+  deliveryStatus: z.enum(['delivered', 'not-delivered']).optional(),
+});
+
+export const nextSmsJobResponseSchema = z.object({
+  job: smsJobSchema.nullable(),
+});
+
+export const smsJobsResponseSchema = z.object({
+  jobs: z.array(smsJobSchema),
+});
+
+export const deleteSmsJobResponseSchema = z.object({
+  deleted: z.literal(true),
+});
+
+export const smsQueueStatusSchema = z.object({
+  asOf: z.string().datetime(),
+  queued: z.number().int().nonnegative(),
+  sending: z.number().int().nonnegative(),
+  sent: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+
+export const completeSmsJobRequestSchema = z.object({
+  status: z.enum(['sent', 'failed']),
+  failureReason: z.string().max(500).optional(),
+}).strict();
+
+export const completeSmsJobResponseSchema = z.object({
+  job: smsJobSchema,
+});
+
+export const smsDeliveryReportRequestSchema = z.object({
+  status: z.enum(['delivered', 'not-delivered']),
+}).strict();
 
 export const gatewayHealthSchema = z.object({
   status: z.literal('ok'),

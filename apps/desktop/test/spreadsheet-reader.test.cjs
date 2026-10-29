@@ -5,7 +5,10 @@ const path = require('node:path');
 const test = require('node:test');
 const XLSX = require('@e965/xlsx');
 const { storeSpreadsheetUpload } = require('../dist/upload-storage.js');
-const { readSpreadsheetSheets } = require('../dist/spreadsheet-reader.js');
+const {
+  readSpreadsheetRows,
+  readSpreadsheetSheets,
+} = require('../dist/spreadsheet-reader.js');
 
 test('reads numbered sheets, headers, and a sample data row', async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), 'sms-gateway-reader-'));
@@ -18,6 +21,8 @@ test('reads numbered sheets, headers, and a sample data row', async (t) => {
     XLSX.utils.aoa_to_sheet([
       ['Name', 'Phone Number', 'License Plate'],
       ['Samuel Thaka', '+254700000000', 'KBX 136G'],
+      ['', '', ''],
+      ['Amina Njoroge', '+254711111111', 'KCY 246H'],
     ]),
     'Contacts',
   );
@@ -48,6 +53,24 @@ test('reads numbered sheets, headers, and a sample data row', async (t) => {
       name: 'Other',
       headers: ['Ignore me'],
       sample: [{ header: 'Ignore me', value: '' }],
+    },
+  ]);
+  assert.deepEqual(await readSpreadsheetRows(uploadDir, upload.id, 1), [
+    {
+      rowNumber: 2,
+      values: [
+        { header: 'Name', value: 'Samuel Thaka' },
+        { header: 'Phone Number', value: '+254700000000' },
+        { header: 'License Plate', value: 'KBX 136G' },
+      ],
+    },
+    {
+      rowNumber: 4,
+      values: [
+        { header: 'Name', value: 'Amina Njoroge' },
+        { header: 'Phone Number', value: '+254711111111' },
+        { header: 'License Plate', value: 'KCY 246H' },
+      ],
     },
   ]);
 });
