@@ -128,6 +128,8 @@ function groupJobsByDate(
 }
 
 function App() {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'connections' | 'messages' | 'settings'>('dashboard');
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [storedPairing, setStoredPairing] = useState<SavedPairing>();
   const [queueStatus, setQueueStatus] = useState(EMPTY_QUEUE_STATUS);
@@ -253,6 +255,7 @@ function App() {
 
   const busy = connection.status === 'pairing';
   const paired = connection.status === 'connected' ? connection.pairing : undefined;
+  const styles = createStyles(isDarkMode);
 
   const refreshQueueData = useCallback(async (pairing: SavedPairing, isActive: () => boolean = () => true) => {
     const client = createGatewayClient(pairing.baseUrl, pairing.certificatePin, gatewayTransport);
@@ -459,237 +462,383 @@ function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.eyebrow}>SECURE DEVICE PAIRING</Text>
-          <Text style={styles.title}>Connect your device</Text>
+          <Text style={styles.eyebrow}>SMS GATEWAY</Text>
+          <Text style={styles.title}>
+            {activeTab === 'dashboard'
+              ? 'Dashboard'
+              : activeTab === 'connections'
+              ? 'Connections'
+              : activeTab === 'messages'
+              ? 'Messages'
+              : 'Settings'}
+          </Text>
           <Text style={styles.description}>
-            Scan the QR code shown in the desktop app. The QR code supplies the certificate pin and one-time code; the
-            gateway identity is checked before the code is sent.
+            {activeTab === 'dashboard'
+              ? 'Your secure SMS gateway at a glance.'
+              : activeTab === 'connections'
+              ? 'Pair this phone with your desktop gateway.'
+              : activeTab === 'messages'
+              ? 'Review queued, failed, and sent messages.'
+              : 'Make the app feel right for you.'}
           </Text>
 
-          <View style={styles.card}>
-            {!paired && (
-              <View style={styles.pairingFields}>
-                {storedPairing && (
-                  <>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={busy}
-                      onPress={reconnectExistingDevice}
-                      testID="reconnect-device-button"
-                      style={({ pressed }) => [
-                        styles.button,
-                        styles.secondaryButton,
-                        pressed && styles.buttonPressed,
-                        busy && styles.buttonDisabled,
-                      ]}
-                    >
-                      <Text style={styles.secondaryButtonText}>Reconnect saved device</Text>
-                    </Pressable>
-                    <Text style={styles.hint}>Or pair another device by scanning a new desktop QR code.</Text>
-                  </>
-                )}
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy}
-                  onPress={startScanning}
-                  testID="scan-pairing-qr-button"
-                  style={({ pressed }) => [
-                    styles.button,
-                    pressed && styles.buttonPressed,
-                    busy && styles.buttonDisabled,
-                  ]}
-                >
-                  {connection.status === 'pairing' ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.buttonText}>Scan desktop QR code</Text>
-                  )}
-                </Pressable>
-                {isScanning && hasPermission && cameraDevice && (
-                  <View style={styles.cameraFrame}>
-                    <Camera
-                      codeScanner={codeScanner}
-                      device={cameraDevice}
-                      isActive={isScanning}
-                      style={StyleSheet.absoluteFill}
-                      testID="pairing-camera"
-                    />
-                    <Text style={styles.cameraHint}>Point the camera at a pairing QR code on the desktop.</Text>
-                  </View>
-                )}
-              </View>
-            )}
+          {activeTab === 'dashboard' && !paired && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Connect your phone</Text>
+              <Text style={styles.hint}>
+                Pair with your desktop to see message activity and send queued SMS messages securely.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setActiveTab('connections')}
+                testID="dashboard-connect-button"
+                style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+              >
+                <Text style={styles.buttonText}>Set up connection</Text>
+              </Pressable>
+            </View>
+          )}
 
-            {paired && (
-              <View style={styles.pairedPanel}>
-                <Text style={styles.connectedTitle}>Device paired</Text>
-                <Text style={styles.description}>
-                  {paired.deviceName} is securely connected to the desktop gateway.
-                </Text>
-                <Text style={styles.queueStatus}>
-                  {queueStatus.queued} waiting · {queueStatus.sending} sending
-                  {'\n'}
-                  {queueStatus.sent} submitted to Android · {queueStatus.failed} failed
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={isSending || queueStatus.queued === 0}
-                  onPress={confirmBatchSend}
-                  testID="send-queued-messages-button"
-                  style={({ pressed }) => [
-                    styles.button,
-                    pressed && styles.buttonPressed,
-                    (isSending || queueStatus.queued === 0) && styles.buttonDisabled,
-                  ]}
-                >
-                  {isSending ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.buttonText}>Send queued messages ({queueStatus.queued})</Text>
+          {activeTab === 'connections' && (
+            <View style={styles.card}>
+              {!paired && (
+                <View style={styles.pairingFields}>
+                  {storedPairing && (
+                    <>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={busy}
+                        onPress={reconnectExistingDevice}
+                        testID="reconnect-device-button"
+                        style={({ pressed }) => [
+                          styles.button,
+                          styles.secondaryButton,
+                          pressed && styles.buttonPressed,
+                          busy && styles.buttonDisabled,
+                        ]}
+                      >
+                        <Text style={styles.secondaryButtonText}>Reconnect saved device</Text>
+                      </Pressable>
+                      <Text style={styles.hint}>Or pair another device by scanning a new desktop QR code.</Text>
+                    </>
                   )}
-                </Pressable>
-                <View style={styles.jobSection}>
-                  <Text style={styles.sectionTitle}>Pending messages</Text>
-                  {pendingJobs.length === 0 ? (
-                    <Text style={styles.hint}>No messages are waiting.</Text>
-                  ) : (
-                    groupJobsByDate(pendingJobs, (job) => job.createdAt).map((group) => (
-                      <View key={group.key}>
-                        <Text style={styles.dateGroupTitle}>{group.label}</Text>
-                        {group.jobs.map((job) => (
-                          <View key={job.id} style={styles.jobRow}>
-                            <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
-                            <Text style={styles.jobMessage}>{job.message}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ))
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={startScanning}
+                    testID="scan-pairing-qr-button"
+                    style={({ pressed }) => [
+                      styles.button,
+                      pressed && styles.buttonPressed,
+                      busy && styles.buttonDisabled,
+                    ]}
+                  >
+                    {connection.status === 'pairing' ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.buttonText}>Scan desktop QR code</Text>
+                    )}
+                  </Pressable>
+                  {isScanning && hasPermission && cameraDevice && (
+                    <View style={styles.cameraFrame}>
+                      <Camera
+                        codeScanner={codeScanner}
+                        device={cameraDevice}
+                        isActive={isScanning}
+                        style={StyleSheet.absoluteFill}
+                        testID="pairing-camera"
+                      />
+                      <Text style={styles.cameraHint}>Point the camera at a pairing QR code on the desktop.</Text>
+                    </View>
                   )}
                 </View>
-                <View style={styles.jobSection}>
-                  <Text style={styles.sectionTitle}>Failed attempts</Text>
-                  {failedJobs.length === 0 ? (
-                    <Text style={styles.hint}>No failed attempts.</Text>
-                  ) : (
-                    groupJobsByDate(failedJobs, (job) => job.updatedAt).map((group) => (
-                      <View key={group.key}>
-                        <Text style={styles.dateGroupTitle}>{group.label}</Text>
-                        {group.jobs.map((job) => (
-                          <View key={job.id} style={styles.jobRow}>
-                            <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
-                            <Text style={styles.jobMessage}>{job.message}</Text>
-                            <Text style={styles.jobFailure}>
-                              {job.failureReason ?? 'The message could not be submitted.'}
-                            </Text>
-                            <View style={styles.jobActions}>
-                              <Pressable
-                                accessibilityRole="button"
-                                disabled={updatingJobId !== undefined}
-                                onPress={() => retryFailedJob(job.id)}
-                                testID={`retry-failed-job-${job.id}`}
-                                style={({ pressed }) => [
-                                  styles.jobButton,
-                                  styles.retryJobButton,
-                                  pressed && styles.buttonPressed,
-                                  updatingJobId !== undefined && styles.buttonDisabled,
-                                ]}
-                              >
-                                <Text style={styles.retryJobText}>Retry</Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityRole="button"
-                                disabled={updatingJobId !== undefined}
-                                onPress={() =>
-                                  Alert.alert(
-                                    'Delete failed message?',
-                                    `Permanently delete the failed message to ${job.phoneNumber}?`,
-                                    [
-                                      { text: 'Cancel', style: 'cancel' },
-                                      {
-                                        text: 'Delete',
-                                        style: 'destructive',
-                                        onPress: () => deleteFailedJob(job.id),
-                                      },
-                                    ],
-                                  )
-                                }
-                                testID={`delete-failed-job-${job.id}`}
-                                style={({ pressed }) => [
-                                  styles.jobButton,
-                                  styles.deleteJobButton,
-                                  pressed && styles.buttonPressed,
-                                  updatingJobId !== undefined && styles.buttonDisabled,
-                                ]}
-                              >
-                                <Text style={styles.deleteJobText}>Delete</Text>
-                              </Pressable>
+              )}
+
+              {paired && (
+                <View style={styles.pairedPanel}>
+                  <Text style={styles.connectedTitle}>Device paired</Text>
+                  <Text style={styles.description}>
+                    {paired.deviceName} is securely connected to the desktop gateway.
+                  </Text>
+                  <Text style={styles.deviceAddress}>{paired.baseUrl}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={forgetDevice}
+                    testID="forget-device-button"
+                    style={({ pressed }) => [styles.button, styles.secondaryButton, pressed && styles.buttonPressed]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Forget on this phone</Text>
+                  </Pressable>
+                  <Text style={styles.hint}>
+                    To revoke access completely, also select Revoke for this device in the desktop app.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {activeTab === 'dashboard' && paired && (
+            <View style={styles.card}>
+              <View style={styles.dashboardConnection}>
+                <View style={styles.connectionIndicator} />
+                <View style={styles.dashboardConnectionCopy}>
+                  <Text style={styles.connectedTitle}>Gateway connected</Text>
+                  <Text style={styles.hintCompact}>{paired.deviceName}</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setActiveTab('connections')}
+                  testID="dashboard-manage-connection-button"
+                  style={({ pressed }) => [styles.manageButton, pressed && styles.buttonPressed]}
+                >
+                  <Text style={styles.manageButtonText}>Manage</Text>
+                </Pressable>
+              </View>
+              <View style={styles.metricsRow}>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricValue}>{queueStatus.queued}</Text>
+                  <Text style={styles.metricLabel}>Waiting</Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricValue}>{queueStatus.sent}</Text>
+                  <Text style={styles.metricLabel}>Submitted</Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={[styles.metricValue, queueStatus.failed > 0 && styles.metricWarning]}>
+                    {queueStatus.failed}
+                  </Text>
+                  <Text style={styles.metricLabel}>Failed</Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={isSending || queueStatus.queued === 0}
+                onPress={confirmBatchSend}
+                testID="send-queued-messages-button"
+                style={({ pressed }) => [
+                  styles.button,
+                  pressed && styles.buttonPressed,
+                  (isSending || queueStatus.queued === 0) && styles.buttonDisabled,
+                ]}
+              >
+                {isSending ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Send queued messages ({queueStatus.queued})</Text>
+                )}
+              </Pressable>
+              <Text style={styles.hint}>
+                Messages are submitted one at a time using this phone’s default SIM. Carrier charges may apply.
+              </Text>
+            </View>
+          )}
+
+          {activeTab === 'messages' && (
+            <View style={styles.card}>
+              {!paired ? (
+                <>
+                  <Text style={styles.sectionTitle}>No device connected</Text>
+                  <Text style={styles.hint}>Connect a phone to view its message activity.</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setActiveTab('connections')}
+                    testID="messages-connect-button"
+                    style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+                  >
+                    <Text style={styles.buttonText}>Open connections</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <View style={styles.pairedPanel}>
+                  <Text style={styles.queueStatus}>
+                    {queueStatus.queued} waiting · {queueStatus.sending} sending
+                    {'\n'}
+                    {queueStatus.sent} submitted to Android · {queueStatus.failed} failed
+                  </Text>
+                  <View style={styles.jobSection}>
+                    <Text style={styles.sectionTitle}>Pending messages</Text>
+                    {pendingJobs.length === 0 ? (
+                      <Text style={styles.hint}>No messages are waiting.</Text>
+                    ) : (
+                      groupJobsByDate(pendingJobs, (job) => job.createdAt).map((group) => (
+                        <View key={group.key}>
+                          <Text style={styles.dateGroupTitle}>{group.label}</Text>
+                          {group.jobs.map((job) => (
+                            <View key={job.id} style={styles.jobRow}>
+                              <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
+                              <Text style={styles.jobMessage}>{job.message}</Text>
                             </View>
-                          </View>
-                        ))}
-                      </View>
-                    ))
-                  )}
-                  {failedJobs.length > 0 && (
+                          ))}
+                        </View>
+                      ))
+                    )}
+                  </View>
+                  <View style={styles.jobSection}>
+                    <Text style={styles.sectionTitle}>Failed attempts</Text>
+                    {failedJobs.length === 0 ? (
+                      <Text style={styles.hint}>No failed attempts.</Text>
+                    ) : (
+                      groupJobsByDate(failedJobs, (job) => job.updatedAt).map((group) => (
+                        <View key={group.key}>
+                          <Text style={styles.dateGroupTitle}>{group.label}</Text>
+                          {group.jobs.map((job) => (
+                            <View key={job.id} style={styles.jobRow}>
+                              <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
+                              <Text style={styles.jobMessage}>{job.message}</Text>
+                              <Text style={styles.jobFailure}>
+                                {job.failureReason ?? 'The message could not be submitted.'}
+                              </Text>
+                              <View style={styles.jobActions}>
+                                <Pressable
+                                  accessibilityRole="button"
+                                  disabled={updatingJobId !== undefined}
+                                  onPress={() => retryFailedJob(job.id)}
+                                  testID={`retry-failed-job-${job.id}`}
+                                  style={({ pressed }) => [
+                                    styles.jobButton,
+                                    styles.retryJobButton,
+                                    pressed && styles.buttonPressed,
+                                    updatingJobId !== undefined && styles.buttonDisabled,
+                                  ]}
+                                >
+                                  <Text style={styles.retryJobText}>Retry</Text>
+                                </Pressable>
+                                <Pressable
+                                  accessibilityRole="button"
+                                  disabled={updatingJobId !== undefined}
+                                  onPress={() =>
+                                    Alert.alert(
+                                      'Delete failed message?',
+                                      `Permanently delete the failed message to ${job.phoneNumber}?`,
+                                      [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: () => deleteFailedJob(job.id),
+                                        },
+                                      ],
+                                    )
+                                  }
+                                  testID={`delete-failed-job-${job.id}`}
+                                  style={({ pressed }) => [
+                                    styles.jobButton,
+                                    styles.deleteJobButton,
+                                    pressed && styles.buttonPressed,
+                                    updatingJobId !== undefined && styles.buttonDisabled,
+                                  ]}
+                                >
+                                  <Text style={styles.deleteJobText}>Delete</Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      ))
+                    )}
+                    {failedJobs.length > 0 && (
+                      <Text style={styles.hint}>
+                        Retry returns the message to pending. Tap Send queued messages when you are ready to try again.
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.jobSection}>
+                    <Text style={styles.sectionTitle}>Sent messages</Text>
+                    {sentJobs.length === 0 ? (
+                      <Text style={styles.hint}>No messages have been sent yet.</Text>
+                    ) : (
+                      groupJobsByDate(sentJobs, (job) => job.sentAt ?? job.updatedAt).map((group) => (
+                        <View key={group.key}>
+                          <Text style={styles.dateGroupTitle}>{group.label}</Text>
+                          {group.jobs.map((job) => (
+                            <View key={job.id} style={styles.jobRow}>
+                              <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
+                              <Text style={styles.jobMessage}>{job.message}</Text>
+                              <Text style={styles.sentJobStatus}>
+                                {job.deliveryStatus === 'delivered'
+                                  ? 'Sent · Delivered'
+                                  : job.deliveryStatus === 'not-delivered'
+                                  ? 'Sent · Not delivered'
+                                  : 'Sent'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      ))
+                    )}
                     <Text style={styles.hint}>
-                      Retry returns the message to pending. Tap Send queued messages when you are ready to try again.
+                      Delivery reports depend on the carrier and recipient network. Without a report, only sent status
+                      is shown.
+                    </Text>
+                  </View>
+                  <Text style={styles.hint}>
+                    Keep this app open while sending. Sent means accepted by Android, not confirmed delivered.
+                  </Text>
+                  {!!queueError && (
+                    <Text accessibilityLiveRegion="polite" style={styles.errorMessage}>
+                      {queueError}
                     </Text>
                   )}
                 </View>
-                <View style={styles.jobSection}>
-                  <Text style={styles.sectionTitle}>Sent messages</Text>
-                  {sentJobs.length === 0 ? (
-                    <Text style={styles.hint}>No messages have been sent yet.</Text>
-                  ) : (
-                    groupJobsByDate(sentJobs, (job) => job.sentAt ?? job.updatedAt).map((group) => (
-                      <View key={group.key}>
-                        <Text style={styles.dateGroupTitle}>{group.label}</Text>
-                        {group.jobs.map((job) => (
-                          <View key={job.id} style={styles.jobRow}>
-                            <Text style={styles.jobRecipient}>{job.phoneNumber}</Text>
-                            <Text style={styles.jobMessage}>{job.message}</Text>
-                            <Text style={styles.sentJobStatus}>
-                              {job.deliveryStatus === 'delivered'
-                                ? 'Sent · Delivered'
-                                : job.deliveryStatus === 'not-delivered'
-                                ? 'Sent · Not delivered'
-                                : 'Sent'}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    ))
-                  )}
-                  <Text style={styles.hint}>
-                    Delivery reports depend on the carrier and recipient network. Without a report, only sent status is
-                    shown.
-                  </Text>
-                </View>
-                <Text style={styles.hint}>
-                  Keep this app open while sending. Messages are sent one at a time via the phone’s default SIM; sent
-                  means accepted by Android, not confirmed delivered.
-                </Text>
-                {!!queueError && (
-                  <Text accessibilityLiveRegion="polite" style={styles.errorMessage}>
-                    {queueError}
-                  </Text>
-                )}
+              )}
+            </View>
+          )}
+
+          {activeTab === 'settings' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Appearance</Text>
+              <Text style={styles.description}>Choose a theme that works best for your environment.</Text>
+              <View style={styles.themeOptions}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={forgetDevice}
-                  testID="forget-device-button"
-                  style={({ pressed }) => [styles.button, styles.secondaryButton, pressed && styles.buttonPressed]}
+                  accessibilityState={{ selected: !isDarkMode }}
+                  onPress={() => setIsDarkMode(false)}
+                  testID="light-theme-button"
+                  style={[styles.themeOption, !isDarkMode && styles.themeOptionSelected]}
                 >
-                  <Text style={styles.secondaryButtonText}>Forget on this phone</Text>
+                  <Text style={[styles.themeOptionText, !isDarkMode && styles.themeOptionTextSelected]}>Light</Text>
                 </Pressable>
-                <Text style={styles.hint}>
-                  To revoke access completely, also select Revoke for this device in the desktop app.
-                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isDarkMode }}
+                  onPress={() => setIsDarkMode(true)}
+                  testID="dark-theme-button"
+                  style={[styles.themeOption, isDarkMode && styles.themeOptionSelected]}
+                >
+                  <Text style={[styles.themeOptionText, isDarkMode && styles.themeOptionTextSelected]}>Dark</Text>
+                </Pressable>
               </View>
-            )}
-          </View>
+              <View style={styles.settingsSection}>
+                <Text style={styles.sectionTitle}>Device security</Text>
+                <Text style={styles.hint}>
+                  Forgetting a device removes its saved credentials from this phone. Revoke its access in the desktop
+                  app to disconnect it completely.
+                </Text>
+                {paired ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={forgetDevice}
+                    testID="settings-forget-device-button"
+                    style={({ pressed }) => [styles.button, styles.secondaryButton, pressed && styles.buttonPressed]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Forget {paired.deviceName}</Text>
+                  </Pressable>
+                ) : storedPairing ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={forgetDevice}
+                    testID="settings-forget-saved-device-button"
+                    style={({ pressed }) => [styles.button, styles.secondaryButton, pressed && styles.buttonPressed]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Forget saved device</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          )}
 
           {connection.status === 'error' && (
             <Text accessibilityLiveRegion="polite" style={styles.errorMessage}>
@@ -697,227 +846,422 @@ function App() {
             </Text>
           )}
 
-          {storedPairing && !paired && (
-            <Pressable
-              accessibilityRole="button"
-              onPress={forgetDevice}
-              testID="forget-saved-device-button"
-              style={({ pressed }) => [styles.button, styles.secondaryButton, pressed && styles.buttonPressed]}
-            >
-              <Text style={styles.secondaryButtonText}>Forget saved pairing</Text>
-            </Pressable>
-          )}
-
-          {!paired && (
+          {!paired && activeTab === 'connections' && (
             <Text style={styles.hint}>
               The pairing QR code expires automatically. Keep the desktop app open and scan its current code.
             </Text>
           )}
         </ScrollView>
+        <View style={styles.tabBar}>
+          {(
+            [
+              ['dashboard', 'Home'],
+              ['connections', 'Connect'],
+              ['messages', 'Messages'],
+              ['settings', 'Settings'],
+            ] as const
+          ).map(([tab, label]) => (
+            <Pressable
+              key={tab}
+              accessibilityRole="button"
+              accessibilityState={{ selected: activeTab === tab }}
+              onPress={() => setActiveTab(tab)}
+              testID={`tab-${tab}`}
+              style={({ pressed }) => [styles.tabButton, pressed && styles.buttonPressed]}
+            >
+              <Text style={[styles.tabLabel, activeTab === tab && styles.tabLabelActive]}>{label}</Text>
+              {tab === 'messages' && queueStatus.failed > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{queueStatus.failed}</Text>
+                </View>
+              )}
+            </Pressable>
+          ))}
+        </View>
       </SafeAreaView>
     </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#f8fafc',
-    flex: 1,
-  },
-  content: {
-    alignSelf: 'center',
-    maxWidth: 480,
-    padding: 24,
-    width: '100%',
-  },
-  eyebrow: {
-    color: '#2563eb',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  title: {
-    color: '#0f172a',
-    fontSize: 26,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  description: {
-    color: '#475569',
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 18,
-  },
-  queueStatus: {
-    color: '#0f172a',
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 6,
-  },
-  sectionTitle: {
-    color: '#0f172a',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  dateGroupTitle: {
-    color: '#475569',
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 10,
-  },
-  jobSection: {
-    borderTopColor: '#e2e8f0',
-    borderTopWidth: 1,
-    marginTop: 18,
-    paddingTop: 16,
-  },
-  jobRow: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
-    marginTop: 8,
-    padding: 12,
-  },
-  jobRecipient: {
-    color: '#0f172a',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  jobMessage: {
-    color: '#334155',
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 4,
-  },
-  jobFailure: {
-    color: '#b91c1c',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 4,
-  },
-  sentJobStatus: {
-    color: '#15803d',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 8,
-  },
-  jobActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  jobButton: {
-    borderRadius: 8,
-    borderWidth: 1,
-    minWidth: 84,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  retryJobButton: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#bfdbfe',
-  },
-  retryJobText: {
-    color: '#1d4ed8',
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  deleteJobButton: {
-    backgroundColor: '#fef2f2',
-    borderColor: '#fecaca',
-  },
-  deleteJobText: {
-    color: '#b91c1c',
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderColor: '#e2e8f0',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 18,
-  },
-  button: {
-    alignItems: 'center',
-    backgroundColor: '#2563eb',
-    borderRadius: 10,
-    justifyContent: 'center',
-    marginTop: 14,
-    minHeight: 48,
-    paddingHorizontal: 12,
-  },
-  secondaryButton: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#bfdbfe',
-    borderWidth: 1,
-  },
-  secondaryButtonText: {
-    color: '#1d4ed8',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  buttonPressed: {
-    opacity: 0.82,
-  },
-  buttonDisabled: {
-    opacity: 0.55,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  pairingFields: {
-    borderTopColor: '#e2e8f0',
-    borderTopWidth: 1,
-    marginTop: 20,
-    paddingTop: 8,
-  },
-  cameraFrame: {
-    backgroundColor: '#0f172a',
-    borderRadius: 10,
-    height: 320,
-    marginTop: 16,
-    overflow: 'hidden',
-  },
-  cameraHint: {
-    backgroundColor: '#0f172acc',
-    bottom: 0,
-    color: '#fff',
-    fontSize: 13,
-    left: 0,
-    padding: 12,
-    position: 'absolute',
-    right: 0,
-    textAlign: 'center',
-  },
-  pairedPanel: {
-    borderTopColor: '#e2e8f0',
-    borderTopWidth: 1,
-    marginTop: 20,
-    paddingTop: 16,
-  },
-  connectedTitle: {
-    color: '#15803d',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  errorMessage: {
-    color: '#b91c1c',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 12,
-  },
-  hint: {
-    color: '#64748b',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 18,
-  },
-});
+function createStyles(isDarkMode: boolean) {
+  const colors = isDarkMode
+    ? {
+        background: '#0c1220',
+        surface: '#151e2f',
+        border: '#29364a',
+        text: '#edf3fd',
+        secondaryText: '#aab8ca',
+        mutedText: '#8b9bb1',
+        subtleSurface: '#1d293b',
+        primary: '#6b95ff',
+        primarySoft: '#1a2c4b',
+        primaryBorder: '#304d7d',
+        green: '#4ade80',
+        red: '#fca5a5',
+        redSoft: '#3b2029',
+        redBorder: '#67313d',
+      }
+    : {
+        background: '#f4f7fb',
+        surface: '#ffffff',
+        border: '#e2e8f0',
+        text: '#0f172a',
+        secondaryText: '#475569',
+        mutedText: '#64748b',
+        subtleSurface: '#f8fafc',
+        primary: '#2563eb',
+        primarySoft: '#eff6ff',
+        primaryBorder: '#bfdbfe',
+        green: '#15803d',
+        red: '#b91c1c',
+        redSoft: '#fef2f2',
+        redBorder: '#fecaca',
+      };
+
+  return StyleSheet.create({
+    container: {
+      backgroundColor: colors.background,
+      flex: 1,
+    },
+    content: {
+      alignSelf: 'center',
+      maxWidth: 480,
+      paddingHorizontal: 22,
+      paddingTop: 22,
+      paddingBottom: 28,
+      width: '100%',
+    },
+    eyebrow: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 1.2,
+      marginBottom: 8,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 28,
+      fontWeight: '700',
+      marginBottom: 8,
+    },
+    description: {
+      color: colors.secondaryText,
+      fontSize: 15,
+      lineHeight: 22,
+      marginBottom: 18,
+    },
+    queueStatus: {
+      color: colors.text,
+      fontSize: 14,
+      lineHeight: 21,
+      marginTop: 6,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '700',
+      marginBottom: 8,
+    },
+    dateGroupTitle: {
+      color: colors.secondaryText,
+      fontSize: 14,
+      fontWeight: '700',
+      marginTop: 10,
+    },
+    jobSection: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      marginTop: 18,
+      paddingTop: 16,
+    },
+    jobRow: {
+      backgroundColor: colors.subtleSurface,
+      borderRadius: 12,
+      marginTop: 8,
+      padding: 12,
+    },
+    jobRecipient: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    jobMessage: {
+      color: colors.secondaryText,
+      fontSize: 14,
+      lineHeight: 20,
+      marginTop: 4,
+    },
+    jobFailure: {
+      color: colors.red,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 4,
+    },
+    sentJobStatus: {
+      color: colors.green,
+      fontSize: 13,
+      fontWeight: '700',
+      marginTop: 8,
+    },
+    jobActions: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 10,
+    },
+    jobButton: {
+      borderRadius: 8,
+      borderWidth: 1,
+      minWidth: 84,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    retryJobButton: {
+      backgroundColor: colors.primarySoft,
+      borderColor: colors.primaryBorder,
+    },
+    retryJobText: {
+      color: colors.primary,
+      fontSize: 14,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    deleteJobButton: {
+      backgroundColor: colors.redSoft,
+      borderColor: colors.redBorder,
+    },
+    deleteJobText: {
+      color: colors.red,
+      fontSize: 14,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      elevation: 2,
+      padding: 18,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDarkMode ? 0.15 : 0.04,
+      shadowRadius: 8,
+    },
+    button: {
+      alignItems: 'center',
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      justifyContent: 'center',
+      marginTop: 14,
+      minHeight: 50,
+      paddingHorizontal: 12,
+    },
+    secondaryButton: {
+      backgroundColor: colors.primarySoft,
+      borderColor: colors.primaryBorder,
+      borderWidth: 1,
+    },
+    secondaryButtonText: {
+      color: colors.primary,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    buttonPressed: {
+      opacity: 0.82,
+    },
+    buttonDisabled: {
+      opacity: 0.5,
+    },
+    buttonText: {
+      color: '#ffffff',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    pairingFields: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      marginTop: 4,
+      paddingTop: 8,
+    },
+    cameraFrame: {
+      backgroundColor: '#0f172a',
+      borderRadius: 12,
+      height: 320,
+      marginTop: 16,
+      overflow: 'hidden',
+    },
+    cameraHint: {
+      backgroundColor: '#0f172acc',
+      bottom: 0,
+      color: '#ffffff',
+      fontSize: 13,
+      left: 0,
+      padding: 12,
+      position: 'absolute',
+      right: 0,
+      textAlign: 'center',
+    },
+    pairedPanel: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      marginTop: 20,
+      paddingTop: 16,
+    },
+    connectedTitle: {
+      color: colors.green,
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    errorMessage: {
+      color: colors.red,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 12,
+    },
+    hint: {
+      color: colors.mutedText,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 18,
+    },
+    hintCompact: {
+      color: colors.mutedText,
+      fontSize: 13,
+      marginTop: 4,
+    },
+    dashboardConnection: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      marginBottom: 18,
+    },
+    dashboardConnectionCopy: {
+      flex: 1,
+    },
+    connectionIndicator: {
+      backgroundColor: colors.green,
+      borderRadius: 6,
+      height: 12,
+      marginRight: 12,
+      width: 12,
+    },
+    manageButton: {
+      backgroundColor: colors.primarySoft,
+      borderRadius: 9,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    manageButtonText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    metricsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4,
+    },
+    metricCard: {
+      backgroundColor: colors.subtleSurface,
+      borderRadius: 12,
+      flex: 1,
+      minHeight: 78,
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    metricValue: {
+      color: colors.text,
+      fontSize: 22,
+      fontWeight: '700',
+    },
+    metricWarning: {
+      color: colors.red,
+    },
+    metricLabel: {
+      color: colors.mutedText,
+      fontSize: 12,
+      marginTop: 3,
+    },
+    deviceAddress: {
+      color: colors.mutedText,
+      fontSize: 13,
+      marginTop: 6,
+    },
+    themeOptions: {
+      backgroundColor: colors.subtleSurface,
+      borderRadius: 12,
+      flexDirection: 'row',
+      gap: 8,
+      padding: 5,
+    },
+    themeOption: {
+      alignItems: 'center',
+      borderRadius: 9,
+      flex: 1,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    themeOptionSelected: {
+      backgroundColor: colors.surface,
+      elevation: 1,
+    },
+    themeOptionText: {
+      color: colors.mutedText,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    themeOptionTextSelected: {
+      color: colors.primary,
+    },
+    settingsSection: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      marginTop: 22,
+      paddingTop: 18,
+    },
+    tabBar: {
+      backgroundColor: colors.surface,
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      paddingHorizontal: 6,
+      paddingTop: 10,
+      paddingBottom: 8,
+    },
+    tabButton: {
+      alignItems: 'center',
+      borderRadius: 10,
+      flex: 1,
+      justifyContent: 'center',
+      minHeight: 44,
+    },
+    tabLabel: {
+      color: colors.mutedText,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    tabLabelActive: {
+      color: colors.primary,
+      fontWeight: '700',
+    },
+    tabBadge: {
+      alignItems: 'center',
+      backgroundColor: colors.red,
+      borderRadius: 8,
+      height: 16,
+      justifyContent: 'center',
+      minWidth: 16,
+      position: 'absolute',
+      right: 14,
+      top: 0,
+    },
+    tabBadgeText: {
+      color: '#ffffff',
+      fontSize: 10,
+      fontWeight: '700',
+    },
+  });
+}
 
 export default App;
