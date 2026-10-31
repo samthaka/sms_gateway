@@ -13,3 +13,7 @@ fs.copyFileSync(
   path.join(source, 'renderer.js'),
   path.join(destination, 'renderer.js'),
 );
+fs.copyFileSync(
+  path.join(__dirname, '..', '..', '..', 'assets', 'icons', 'desktop.png'),
+  path.join(__dirname, '..', 'dist', 'desktop.png'),
+);

@@ -60,6 +60,7 @@ function createMainWindow(): void {
     height: 760,
     minWidth: 760,
     minHeight: 560,
+    icon: path.join(__dirname, 'desktop.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -273,6 +274,9 @@ ipcMain.handle('uploads:read-sheets', async (_event, uploadId: unknown) => {
 
 app.whenReady()
   .then(async () => {
+    if (process.platform === 'darwin') {
+      app.dock?.setIcon(path.join(__dirname, 'desktop.png'));
+    }
     gateway = await startGatewayServer({
       storageDir: path.join(app.getPath('userData'), 'gateway'),
     });
