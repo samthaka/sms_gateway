@@ -10,6 +10,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useColorScheme,
   View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +31,7 @@ import { parsePairingQrPayload } from './pairing-qr';
 import { getPairingDeviceName } from './device-name';
 
 const SAVED_PAIRING_KEY = 'paired-gateway';
+const SAVED_THEME_KEY = 'theme-mode';
 const EMPTY_QUEUE_STATUS: SmsQueueStatus = {
   asOf: new Date(0).toISOString(),
   queued: 0,
@@ -55,6 +57,8 @@ type ConnectionState =
   | { status: 'pairing' }
   | { status: 'connected'; pairing: SavedPairing }
   | { status: 'error'; message: string };
+
+type ThemeMode = 'light' | 'dark' | 'system';
 
 function parseSavedPairing(value: string): SavedPairing {
   const parsed: unknown = JSON.parse(value);
@@ -129,7 +133,10 @@ function groupJobsByDate(
 
 function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'connections' | 'messages' | 'settings'>('dashboard');
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
+  const [themeError, setThemeError] = useState('');
+  const systemColorScheme = useColorScheme();
+  const isDarkMode = themeMode === 'dark' || (themeMode === 'system' && systemColorScheme === 'dark');
   const [isScanning, setIsScanning] = useState(false);
   const [storedPairing, setStoredPairing] = useState<SavedPairing>();
   const [queueStatus, setQueueStatus] = useState(EMPTY_QUEUE_STATUS);
@@ -170,6 +177,29 @@ function App() {
     return () => {
       clearTimeout(timeout);
       appStateSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getSecureValue(SAVED_THEME_KEY)
+      .then((value) => {
+        if (!active || value === null) {
+          return;
+        }
+        if (value !== 'light' && value !== 'dark' && value !== 'system') {
+          throw new Error('Saved theme setting is invalid. Choose a theme to replace it.');
+        }
+        setThemeMode(value);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setThemeError(error instanceof Error ? error.message : 'Could not load the saved theme setting.');
+        }
+      });
+
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -283,6 +313,16 @@ function App() {
   const busy = connection.status === 'pairing';
   const paired = connection.status === 'connected' ? connection.pairing : undefined;
   const styles = createStyles(isDarkMode);
+
+  async function changeTheme(mode: ThemeMode) {
+    setThemeMode(mode);
+    setThemeError('');
+    try {
+      await setSecureValue(SAVED_THEME_KEY, mode);
+    } catch (error) {
+      setThemeError(error instanceof Error ? error.message : 'Could not save the theme setting.');
+    }
+  }
 
   const refreshQueueData = useCallback(async (pairing: SavedPairing, isActive: () => boolean = () => true) => {
     const client = createGatewayClient(pairing.baseUrl, pairing.certificatePin, gatewayTransport);
@@ -817,27 +857,47 @@ function App() {
           {activeTab === 'settings' && (
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Appearance</Text>
-              <Text style={styles.description}>Choose a theme that works best for your environment.</Text>
+              <Text style={styles.description}>Choose a theme or follow your device’s appearance setting.</Text>
               <View style={styles.themeOptions}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ selected: !isDarkMode }}
-                  onPress={() => setIsDarkMode(false)}
+                  accessibilityState={{ selected: themeMode === 'light' }}
+                  onPress={() => changeTheme('light')}
                   testID="light-theme-button"
-                  style={[styles.themeOption, !isDarkMode && styles.themeOptionSelected]}
+                  style={[styles.themeOption, themeMode === 'light' && styles.themeOptionSelected]}
                 >
-                  <Text style={[styles.themeOptionText, !isDarkMode && styles.themeOptionTextSelected]}>Light</Text>
+                  <Text style={[styles.themeOptionText, themeMode === 'light' && styles.themeOptionTextSelected]}>
+                    Light
+                  </Text>
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ selected: isDarkMode }}
-                  onPress={() => setIsDarkMode(true)}
+                  accessibilityState={{ selected: themeMode === 'dark' }}
+                  onPress={() => changeTheme('dark')}
                   testID="dark-theme-button"
-                  style={[styles.themeOption, isDarkMode && styles.themeOptionSelected]}
+                  style={[styles.themeOption, themeMode === 'dark' && styles.themeOptionSelected]}
                 >
-                  <Text style={[styles.themeOptionText, isDarkMode && styles.themeOptionTextSelected]}>Dark</Text>
+                  <Text style={[styles.themeOptionText, themeMode === 'dark' && styles.themeOptionTextSelected]}>
+                    Dark
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: themeMode === 'system' }}
+                  onPress={() => changeTheme('system')}
+                  testID="system-theme-button"
+                  style={[styles.themeOption, themeMode === 'system' && styles.themeOptionSelected]}
+                >
+                  <Text style={[styles.themeOptionText, themeMode === 'system' && styles.themeOptionTextSelected]}>
+                    System
+                  </Text>
                 </Pressable>
               </View>
+              {!!themeError && (
+                <Text accessibilityLiveRegion="polite" style={styles.errorMessage}>
+                  {themeError}
+                </Text>
+              )}
               <View style={styles.settingsSection}>
                 <Text style={styles.sectionTitle}>Device security</Text>
                 <Text style={styles.hint}>

@@ -97,6 +97,7 @@
         color: var(--sidebar-text);
         display: flex;
         flex-direction: column;
+        min-height: 100vh;
         min-width: 176px;
         width: 176px;
         padding: 0.8rem 0.8rem 1rem;
@@ -162,31 +163,65 @@
         width: 1rem;
       }
 
-      .toggle-theme {
-        align-items: center;
-        background: transparent;
-        border: 1px solid transparent;
-        border-radius: 0.65rem;
-        color: var(--heading);
-        display: grid;
-        height: 2.1rem;
-        justify-items: center;
-        padding: 0.35rem;
-        position: absolute;
-        right: 1rem;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 2.1rem;
+      .sidebar-settings {
+        margin-top: auto;
       }
 
-      .toggle-theme:hover {
+      .sidebar-settings:hover {
         background: var(--primary-soft);
-        border-color: var(--card-border);
       }
 
-      .toggle-theme svg {
-        height: 1.25rem;
-        width: 1.25rem;
+      .settings-icon {
+        height: 1.15rem;
+        width: 1.15rem;
+      }
+
+      .dashboard-view.settings-view {
+        align-content: start;
+        grid-template-rows: auto auto auto;
+        overflow-y: auto;
+      }
+
+      .settings-card {
+        padding: 1.1rem 1.2rem;
+      }
+
+      .theme-options {
+        display: grid;
+        gap: 0.7rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 0.8rem;
+      }
+
+      .theme-option {
+        background: var(--panel-strong);
+        border: 1px solid var(--card-border);
+        border-radius: 0.75rem;
+        color: var(--heading);
+        min-height: 5rem;
+        padding: 0.8rem 0.9rem;
+        text-align: left;
+      }
+
+      .theme-option:hover {
+        border-color: var(--primary);
+      }
+
+      .theme-option.selected {
+        background: var(--primary-soft);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 1px var(--primary);
+      }
+
+      .theme-option strong,
+      .theme-option span {
+        display: block;
+      }
+
+      .theme-option span {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-top: 0.3rem;
       }
 
       .main-panel {
@@ -261,13 +296,12 @@
       .summary-card {
         display: grid;
         gap: 0.7rem;
-        grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
+        grid-template-columns: minmax(0, 1fr);
         padding: 0.5rem 0.85rem;
       }
 
       .status-panel {
-        border-right: 1px solid var(--card-border);
-        padding-right: 0.8rem;
+        min-width: 0;
       }
 
       .status-panel h2 {
@@ -279,18 +313,9 @@
         margin: 0;
       }
 
-      .paired-panel {
-        max-width: 35%;
-      }
-
-      .paired-panel h3 {
-        font-size: 0.98rem;
-        margin-bottom: 0.45rem;
-      }
-
       .paired-list {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        grid-template-columns: 1fr;
         gap: 0.4rem;
       }
 
@@ -895,9 +920,11 @@
 
       @media (max-width: 980px) {
         .desktop-shell { flex-direction: column; }
-        .sidebar { width: 100%; min-width: 0; }
+        .sidebar { width: 100%; min-height: 0; min-width: 0; }
         .nav { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+        .sidebar-settings { margin-top: 0.35rem; }
         .dashboard-row { grid-template-columns: 1fr; }
+        .theme-options { grid-template-columns: 1fr; }
         .main-panel { height: auto; min-height: calc(100vh - 12rem); overflow: visible; }
         .content { overflow: visible; }
         .dashboard-view { height: auto; grid-template-rows: auto auto auto; }
@@ -961,13 +988,20 @@
             Logs
           </button>
         </nav>
-
+        <button id="settings-nav" type="button" class="nav-item sidebar-settings" data-view="settings">
+          <svg class="settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"></path>
+            <path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z"></path>
+          </svg>
+          Settings
+        </button>
       </aside>
 
       <div class="main-panel">
         <header class="window-bar">
           <div class="window-title">SMS Gateway Server</div>
-          <button id="theme-toggle" type="button" class="toggle-theme" aria-label="Switch to dark theme">
+          <div class="theme-controls" hidden>
+          <button id="theme-toggle" type="button" class="toggle-theme" aria-label="Switch to dark theme" hidden>
             <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
               <circle cx="12" cy="12" r="4"></circle>
               <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path>
@@ -976,6 +1010,7 @@
               <path d="M20.2 15.7A8.5 8.5 0 0 1 8.3 3.8 8.6 8.6 0 1 0 20.2 15.7Z"></path>
             </svg>
           </button>
+          </div>
         </header>
 
         <main class="content">
@@ -990,10 +1025,6 @@
                   <span class="status-label">Connecting…</span>
                 </p>
                 <p id="connection-summary" class="muted">Checking the local SMS gateway…</p>
-              </div>
-              <div class="paired-panel">
-                <h3>Paired devices</h3>
-                <div id="paired-devices" class="paired-list"></div>
               </div>
             </article>
 
@@ -1133,6 +1164,33 @@
                 </div>
               </div>
             </section>
+          </section>
+
+          <section id="settings-page" class="dashboard-view settings-view" aria-labelledby="settings-title" hidden>
+            <h1 id="settings-title" style="margin:0; font-size: 1.65rem; color: var(--heading);">Settings</h1>
+            <article class="section-card settings-card">
+              <h2>Appearance</h2>
+              <p class="muted">Choose how SMS Gateway looks on this computer.</p>
+              <div class="theme-options" role="group" aria-label="Theme mode">
+                <button class="theme-option" type="button" data-theme-mode="system" aria-pressed="false">
+                  <strong>System</strong>
+                  <span>Follow your device’s appearance</span>
+                </button>
+                <button class="theme-option" type="button" data-theme-mode="light" aria-pressed="false">
+                  <strong>Light</strong>
+                  <span>Always use the light theme</span>
+                </button>
+                <button class="theme-option" type="button" data-theme-mode="dark" aria-pressed="false">
+                  <strong>Dark</strong>
+                  <span>Always use the dark theme</span>
+                </button>
+              </div>
+            </article>
+            <article class="section-card settings-card">
+              <h2>Paired devices</h2>
+              <p class="muted">Manage phones that are allowed to connect to this gateway.</p>
+              <div id="paired-devices" class="paired-list"></div>
+            </article>
           </section>
         </main>
       </div>

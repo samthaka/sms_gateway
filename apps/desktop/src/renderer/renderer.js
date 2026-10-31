@@ -30,36 +30,53 @@ const refreshQueueButton = document.getElementById('refresh-queue');
 const uploadsPageElement = document.getElementById('uploads-page');
 const spreadsheetsPageElement = document.getElementById('spreadsheets-page');
 const connectionPageElement = document.getElementById('connection-page');
+const settingsPageElement = document.getElementById('settings-page');
 const openConnectionButton = document.getElementById('open-connection');
 const dashboardNavButton = document.getElementById('dashboard-nav');
 const spreadsheetsNavButton = document.getElementById('spreadsheets-nav');
+const settingsNavButton = document.getElementById('settings-nav');
 let activeSheets = [];
 
-const themeToggleButton = document.getElementById('theme-toggle');
-const themeSunIcon = themeToggleButton?.querySelector('.theme-icon-sun');
-const themeMoonIcon = themeToggleButton?.querySelector('.theme-icon-moon');
-const savedTheme = window.localStorage.getItem('sms-gateway-theme') === 'dark' ? 'dark' : 'light';
+const themeModeButtons = document.querySelectorAll('[data-theme-mode]');
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+let themeMode = window.localStorage.getItem('sms-gateway-theme');
 
-function updateThemeToggle(theme) {
-  const isDark = theme === 'dark';
-  document.body.setAttribute('data-theme', theme);
-  window.localStorage.setItem('sms-gateway-theme', theme);
-  if (themeSunIcon) {
-    themeSunIcon.hidden = isDark;
-  }
-  if (themeMoonIcon) {
-    themeMoonIcon.hidden = !isDark;
-  }
-  themeToggleButton?.setAttribute('aria-label', `Switch to ${isDark ? 'light' : 'dark'} theme`);
-  themeToggleButton?.setAttribute('title', `Switch to ${isDark ? 'light' : 'dark'} theme`);
+if (themeMode !== 'light' && themeMode !== 'dark' && themeMode !== 'system') {
+  themeMode = 'system';
 }
 
-themeToggleButton?.addEventListener('click', () => {
-  const nextTheme = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-  updateThemeToggle(nextTheme);
+function applyThemeMode(mode) {
+  const theme = mode === 'system' ? (systemTheme.matches ? 'dark' : 'light') : mode;
+  document.body.setAttribute('data-theme', theme);
+  for (const button of themeModeButtons) {
+    const selected = button.dataset.themeMode === mode;
+    button.setAttribute('aria-pressed', String(selected));
+    button.classList.toggle('selected', selected);
+  }
+}
+
+function updateThemeMode(mode) {
+  themeMode = mode;
+  window.localStorage.setItem('sms-gateway-theme', mode);
+  applyThemeMode(mode);
+}
+
+for (const button of themeModeButtons) {
+  button.addEventListener('click', () => {
+    const mode = button.dataset.themeMode;
+    if (mode === 'light' || mode === 'dark' || mode === 'system') {
+      updateThemeMode(mode);
+    }
+  });
+}
+
+systemTheme.addEventListener('change', () => {
+  if (themeMode === 'system') {
+    applyThemeMode(themeMode);
+  }
 });
 
-updateThemeToggle(savedTheme);
+applyThemeMode(themeMode);
 
 const templateStorageKey = 'sms-gateway-message-template';
 templateEditor.value = window.localStorage.getItem(templateStorageKey) ?? '';
@@ -586,6 +603,7 @@ function showPage(page) {
   uploadsPageElement.hidden = page !== 'dashboard';
   spreadsheetsPageElement.hidden = page !== 'spreadsheets';
   connectionPageElement.hidden = page !== 'connections';
+  settingsPageElement.hidden = page !== 'settings';
 
   for (const button of document.querySelectorAll('.nav-item[data-view]')) {
     button.classList.toggle('active', button.dataset.view === page);
@@ -602,6 +620,10 @@ spreadsheetsNavButton.addEventListener('click', () => {
 
 openConnectionButton.addEventListener('click', () => {
   showPage('connections');
+});
+
+settingsNavButton.addEventListener('click', () => {
+  showPage('settings');
 });
 
 function renderUploads(uploads) {

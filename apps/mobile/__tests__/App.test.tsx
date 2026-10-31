@@ -10,6 +10,7 @@ import {
   acknowledgeDeliveryReport,
   getDeviceName,
   getPendingDeliveryReports,
+  getSecureValue,
   setSecureValue,
 } from '../gateway-security';
 import App from '../App';
@@ -73,6 +74,7 @@ jest.mock('react-native-safe-area-context', () => {
 beforeEach(() => {
   jest.clearAllMocks();
   AppState.currentState = 'active';
+  jest.mocked(getSecureValue).mockResolvedValue(null);
 });
 
 const renderedApps: ReactTestRenderer.ReactTestRenderer[] = [];
@@ -406,20 +408,32 @@ test('does not send the pairing code when the server identity mismatches', async
   expect(setSecureValue).not.toHaveBeenCalledWith('paired-gateway', expect.any(String));
 });
 
-test('switches between app sections and light and dark themes', () => {
+test('restores a saved theme and supports light, dark, and system choices', async () => {
+  jest.mocked(getSecureValue).mockResolvedValueOnce('dark');
   const renderer = renderApp();
+
+  await ReactTestRenderer.act(async () => {
+    await Promise.resolve();
+  });
 
   expect(renderer.root.findByProps({ testID: 'tab-dashboard' }).props.accessibilityState.selected).toBe(true);
   ReactTestRenderer.act(() => {
     renderer.root.findByProps({ testID: 'tab-settings' }).props.onPress();
   });
-  expect(renderer.root.findByProps({ testID: 'dark-theme-button' }).props.accessibilityState.selected).toBe(false);
-
-  ReactTestRenderer.act(() => {
-    renderer.root.findByProps({ testID: 'dark-theme-button' }).props.onPress();
-  });
   expect(renderer.root.findByProps({ testID: 'dark-theme-button' }).props.accessibilityState.selected).toBe(true);
-  expect(renderer.root.findByProps({ testID: 'light-theme-button' }).props.accessibilityState.selected).toBe(false);
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root.findByProps({ testID: 'light-theme-button' }).props.onPress();
+    await Promise.resolve();
+  });
+  expect(setSecureValue).toHaveBeenCalledWith('theme-mode', 'light');
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root.findByProps({ testID: 'system-theme-button' }).props.onPress();
+    await Promise.resolve();
+  });
+  expect(renderer.root.findByProps({ testID: 'system-theme-button' }).props.accessibilityState.selected).toBe(true);
+  expect(setSecureValue).toHaveBeenCalledWith('theme-mode', 'system');
 
   ReactTestRenderer.act(() => {
     renderer.root.findByProps({ testID: 'tab-messages' }).props.onPress();
