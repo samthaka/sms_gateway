@@ -139,12 +139,39 @@ function App() {
   const [queueError, setQueueError] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [updatingJobId, setUpdatingJobId] = useState<string>();
+  const [, setDateRefresh] = useState(0);
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'disconnected',
   });
   const { hasPermission, requestPermission } = useCameraPermission();
   const cameraDevice = useCameraDevice('back');
   const scanHandled = useRef(false);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const scheduleDateRefresh = () => {
+      clearTimeout(timeout);
+      const nextMidnight = new Date();
+      nextMidnight.setHours(24, 0, 0, 0);
+      timeout = setTimeout(() => {
+        setDateRefresh((refresh) => refresh + 1);
+        scheduleDateRefresh();
+      }, Math.max(nextMidnight.getTime() - Date.now(), 1));
+    };
+
+    scheduleDateRefresh();
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        setDateRefresh((refresh) => refresh + 1);
+        scheduleDateRefresh();
+      }
+    });
+
+    return () => {
+      clearTimeout(timeout);
+      appStateSubscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;

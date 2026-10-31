@@ -417,6 +417,7 @@ function appendDateHeading(list, label) {
 }
 
 function renderSmsJobs(jobs) {
+  latestSmsJobs = jobs;
   const pending = jobs.filter((job) => job.status === 'queued');
   const failed = jobs.filter((job) => job.status === 'failed');
   const sent = jobs.filter((job) => job.status === 'sent');
@@ -550,6 +551,19 @@ function renderSmsJobs(jobs) {
     }
   }
 }
+
+let latestSmsJobs = [];
+
+function scheduleDateGroupRefresh() {
+  const nextMidnight = new Date();
+  nextMidnight.setHours(24, 0, 0, 0);
+  window.setTimeout(() => {
+    renderSmsJobs(latestSmsJobs);
+    scheduleDateGroupRefresh();
+  }, Math.max(nextMidnight.getTime() - Date.now(), 1));
+}
+
+scheduleDateGroupRefresh();
 
 function refreshQueueStatus() {
   return window.smsGateway

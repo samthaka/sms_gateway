@@ -83,6 +83,7 @@ afterEach(() => {
       renderer.unmount();
     });
   }
+  jest.useRealTimers();
 });
 
 function renderApp(): ReactTestRenderer.ReactTestRenderer {
@@ -312,6 +313,71 @@ test('records and displays carrier delivery reports for sent messages', async ()
   const textContents = renderer.root.findAllByType(Text).map((text) => text.props.children);
   expect(textContents.filter((text) => text === 'Today')).toHaveLength(1);
   expect(textContents.filter((text) => text === 'Yesterday')).toHaveLength(1);
+});
+
+test('updates message date groups when the local date changes', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date(2026, 9, 28, 23, 59, 50));
+  const jobs = [
+    {
+      id: 'a5f07fd8-89cf-4e62-a4d3-68e9ed229e92',
+      phoneNumber: '+254700000001',
+      message: 'Today message',
+      status: 'queued' as const,
+      createdAt: new Date(2026, 9, 28, 23, 59, 40).toISOString(),
+      updatedAt: new Date(2026, 9, 28, 23, 59, 40).toISOString(),
+    },
+    {
+      id: 'b6f07fd8-89cf-4e62-a4d3-68e9ed229e93',
+      phoneNumber: '+254700000002',
+      message: 'Yesterday message',
+      status: 'queued' as const,
+      createdAt: new Date(2026, 9, 27, 12).toISOString(),
+      updatedAt: new Date(2026, 9, 27, 12).toISOString(),
+    },
+  ];
+  jest.mocked(createGatewayClient).mockReturnValue(
+    createClientMock({
+      getSmsJobs: jest.fn().mockResolvedValue(jobs),
+      pairDevice: jest.fn().mockResolvedValue({
+        deviceId: 'device-test-id',
+        deviceName: 'Test Android',
+        serverId: SERVER_ID,
+        token: 'opaque-test-token',
+      }),
+    }),
+  );
+
+  const renderer = renderApp();
+  openConnections(renderer);
+  await ReactTestRenderer.act(async () => {
+    renderer.root.findByProps({ testID: 'scan-pairing-qr-button' }).props.onPress();
+  });
+  const camera = renderer.root.findByProps({ testID: 'pairing-camera' });
+  await ReactTestRenderer.act(async () => {
+    camera.props.codeScanner.onCodeScanned([
+      {
+        value: JSON.stringify({
+          ...PAIRING_QR,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      },
+    ]);
+    await jest.advanceTimersByTimeAsync(10);
+  });
+  openMessages(renderer);
+
+  const getTextContents = () => renderer.root.findAllByType(Text).map((text) => text.props.children);
+  expect(getTextContents().filter((text) => text === 'Today')).toHaveLength(1);
+  expect(getTextContents().filter((text) => text === 'Yesterday')).toHaveLength(1);
+
+  await ReactTestRenderer.act(async () => {
+    await jest.advanceTimersByTimeAsync(10_000);
+  });
+
+  expect(getTextContents().filter((text) => text === 'Today')).toHaveLength(0);
+  expect(getTextContents().filter((text) => text === 'Yesterday')).toHaveLength(1);
+  expect(getTextContents().filter((text) => text === '10/27/2026')).toHaveLength(1);
 });
 
 test('does not send the pairing code when the server identity mismatches', async () => {
